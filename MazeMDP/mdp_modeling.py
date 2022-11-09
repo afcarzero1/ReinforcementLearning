@@ -21,7 +21,7 @@ def add_horizontal_wall(map: np.ndarray, row: int, start: int, end: int):
 
 def build_map() -> np.ndarray:
     dimension = (6, 7)
-    map = -np.ones(dimension)
+    map = -np.ones(dimension) * 0.1
 
     add_vertical_wall(map, 2, 0, 2)
     add_horizontal_wall(map, 4, 1, 5)
@@ -65,13 +65,14 @@ class MDPTerminalState(MDP):
 
 
 class MapProblem(MDPTerminalState):
-    def __init__(self, map: np.ndarray, final_state: (int, int)):
-        self.map = map
+    def __init__(self, map_layout: np.ndarray, final_state: (int, int), start_state:(int, int) = (0, 0)):
+        self.map = map_layout
         self.final_state = final_state
-        self.N = map.size
+        self._initial_state = start_state
+        self.N = map_layout.size
 
         # create x*y states. States represent the cells of the map
-        self._states = [(x, y) for x in range(0, map.shape[0]) for y in range(0, map.shape[1])]
+        self._states = [(x, y) for x in range(0, map_layout.shape[0]) for y in range(0, map_layout.shape[1])]
         self._actions = ['up', 'dw', 'l', 'r']
 
     def actions(self, state):
@@ -112,7 +113,7 @@ class MapProblem(MDPTerminalState):
         return [(next_state, prob, reward)]
 
     def start_state(self):
-        return 0, 0
+        return self._initial_state
 
     def is_end(self, state):
         return state == self.final_state
@@ -134,10 +135,50 @@ class MapProblem(MDPTerminalState):
             print()
 
 
+class MapProblemRandom(MapProblem):
+    def successor_prob_reward(self, state, action):
+        next_state = (0, 0)
+        prob = 1
+
+        if action == 'up':
+            next_state = (state[0] - 1, state[1])
+        elif action == 'dw':
+            next_state = (state[0] + 1, state[1])
+        elif action == 'l':
+            next_state = (state[0], state[1] - 1)
+        elif action == 'r':
+            next_state = (state[0], state[1] + 1)
+
+        if next_state == (5, 0):
+            to_return = []
+            bad_reward = self.map[next_state] * 7
+            bad_reward_prob = 0.5
+            normal_reward = self.map[next_state]
+            normal_reward_prob = 1 - bad_reward_prob
+            to_return.append((next_state, bad_reward_prob, bad_reward))
+            to_return.append((next_state, normal_reward_prob, normal_reward))
+
+            return to_return
+
+        if next_state == (4, 6):
+            to_return = []
+            bad_reward = self.map[next_state] * (1 + 1)
+            bad_reward_prob = 0.5
+            normal_reward = self.map[next_state]
+            normal_reward_prob = 1 - bad_reward_prob
+            to_return.append((next_state, bad_reward_prob, bad_reward))
+            to_return.append((next_state, normal_reward_prob, normal_reward))
+
+            return to_return
+
+        reward = self.map[next_state]
+        return [(next_state, prob, reward)]
+
+
 def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
     T = simulation_time
 
-    remaining_reward = {} # Dictionary (state -> average remaining reward at a given level)
+    remaining_reward = {}  # Dictionary (state -> average remaining reward at a given level)
     best_action = {}
 
     level_rewards = {}
@@ -146,9 +187,10 @@ def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
     def Q(state, action):
         su = sum(prob * (reward + problem.discount() * remaining_reward[newState]) \
                  for newState, prob, reward in problem.successor_prob_reward(state, action))
+        return su
 
     for level in range(T, 0, -1):
-        print(colored(f"Level {level}",'blue'))
+        print(colored(f"Level {level}", 'blue'))
 
         if level == T:
             # maximize over reachable states (greedy solution)
@@ -177,15 +219,14 @@ def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
             # print(remaining_reward)
         else:
             # Apply the recursion algorithm
-            next_remaining_reward = {} # (state -> remaining reward at level)
+            next_remaining_reward = {}  # (state -> remaining reward at level)
             for state in problem.states():
                 maximum_reward_state = 0
                 best_state_action = None
                 for action in problem.actions(state):
                     # Examine for the action the possible states it is possible to end up in. Iterate over them using
                     # the probability to reach them and the remaining reward computed for the level+1
-                    max_reward_action = sum(prob * (reward + problem.discount() * remaining_reward[newState]) \
-                                            for newState, prob, reward in problem.successor_prob_reward(state, action))
+                    max_reward_action = Q(state, action)
 
                     # Substitute the best action if we obtain a higher average remaining reward
                     if max_reward_action > maximum_reward_state:
@@ -215,35 +256,31 @@ def printPath(problem: MDP, solution: dict):
 
     decisions = []
     state = problem.start_state()
-    for level in range(min_level, max_level):
+    collected_reward = 0
+    for level in range(min_level, max_level+1):
         level_decisions = solution[level][state]
         decisions.append((state, level_decisions))
 
-        succ = problem.successor_prob_reward(state, level_decisions)
+        if level_decisions is None:
+            break
 
+        state,_,level_reward = problem.successor_prob_reward(state, level_decisions)[0] #todo : understand how to deal with this
+        collected_reward +=level_reward
+
+    print(collected_reward)
     return decisions
 
 
+def print_successors(mdp : MDP,state : (int,int)):
+    actions = mdp.actions(state)
+    for action in actions:
+        for succ,prob,rew in mdp.successor_prob_reward(state,action):
+            print(f"[STATE {state}] [Action {action}] [Successor {succ}] : {prob} , {rew}")
+
 def main():
-    mdp = MapProblem(build_map(), (5, 5))
+    pass
 
-    print(colored("THE MAP IS :", 'blue'))
-    print(build_map())
-    # mdp = MapProblem(map)
 
-    states = mdp.states()
-
-    print("The states are")
-    print(states)
-    print("Action of state 0 is ")
-    print(mdp.actions(states[0]))
-    print(mdp.successor_prob_reward(states[0], mdp.actions(states[0])[0]))
-
-    print(mdp.successor_prob_reward((1, 0), 'r'))
-
-    _, level_actions = dynamicProgramSolver(mdp, 20)
-    decisions = printPath(mdp, level_actions)
-    print(decisions)
 
 
 if __name__ == '__main__':
