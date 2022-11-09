@@ -1,32 +1,10 @@
 """
-Simple and explicit implementation of the solution of an MDP problem using value iteration.
+Module modeling MDP problems
 """
 
 import numpy as np
 from abc import ABC, abstractmethod
 from termcolor import colored
-
-WALL_REWARD = -30
-
-
-# Functions for building the map
-
-def add_vertical_wall(map: np.ndarray, column: int, start: int, end: int):
-    map[start:(end + 1), column] = WALL_REWARD
-
-
-def add_horizontal_wall(map: np.ndarray, row: int, start: int, end: int):
-    map[row, start:(end + 1)] = WALL_REWARD
-
-
-def build_map() -> np.ndarray:
-    dimension = (6, 7)
-    map = -np.ones(dimension) * 0.1
-
-    add_vertical_wall(map, 2, 0, 2)
-    add_horizontal_wall(map, 4, 1, 5)
-    map[5, 5] = 20
-    return map
 
 
 class MDP(ABC):
@@ -62,117 +40,6 @@ class MDPTerminalState(MDP):
     @abstractmethod
     def is_end(self, state):
         pass
-
-
-class MapProblem(MDPTerminalState):
-    def __init__(self, map_layout: np.ndarray, final_state: (int, int), start_state:(int, int) = (0, 0)):
-        self.map = map_layout
-        self.final_state = final_state
-        self._initial_state = start_state
-        self.N = map_layout.size
-
-        # create x*y states. States represent the cells of the map
-        self._states = [(x, y) for x in range(0, map_layout.shape[0]) for y in range(0, map_layout.shape[1])]
-        self._actions = ['up', 'dw', 'l', 'r']
-
-    def actions(self, state):
-        actions = self._actions.copy()
-        if state[0] <= 0:
-            actions.remove('up')
-        if state[0] >= (self.map.shape[0] - 1):
-            actions.remove('dw')
-        if state[1] <= 0:
-            actions.remove('l')
-        if state[1] >= (self.map.shape[1] - 1):
-            actions.remove('r')
-        if self.is_end(state):
-            actions = []
-
-        return actions
-
-    def states(self):
-        return self._states
-
-    def discount(self):
-        return 1
-
-    def successor_prob_reward(self, state, action):
-        next_state = (0, 0)
-        prob = 1
-
-        if action == 'up':
-            next_state = (state[0] - 1, state[1])
-        elif action == 'dw':
-            next_state = (state[0] + 1, state[1])
-        elif action == 'l':
-            next_state = (state[0], state[1] - 1)
-        elif action == 'r':
-            next_state = (state[0], state[1] + 1)
-
-        reward = self.map[next_state]
-        return [(next_state, prob, reward)]
-
-    def start_state(self):
-        return self._initial_state
-
-    def is_end(self, state):
-        return state == self.final_state
-
-    def print_values(self, values: dict):
-
-        for i in range(self.map.shape[0]):
-            for j in range(self.map.shape[1]):
-                tup = (i, j)
-                print("{:5.2f}".format(values[tup]), end=" ")
-            print()
-
-    def print_actions(self, actions: dict):
-        for i in range(self.map.shape[0]):
-            for j in range(self.map.shape[1]):
-                tup = (i, j)
-                str_to_print = actions[tup] if actions[tup] is not None else "None"
-                print("{:>5}".format(str_to_print), end=" ")
-            print()
-
-
-class MapProblemRandom(MapProblem):
-    def successor_prob_reward(self, state, action):
-        next_state = (0, 0)
-        prob = 1
-
-        if action == 'up':
-            next_state = (state[0] - 1, state[1])
-        elif action == 'dw':
-            next_state = (state[0] + 1, state[1])
-        elif action == 'l':
-            next_state = (state[0], state[1] - 1)
-        elif action == 'r':
-            next_state = (state[0], state[1] + 1)
-
-        if next_state == (5, 0):
-            to_return = []
-            bad_reward = self.map[next_state] * 7
-            bad_reward_prob = 0.5
-            normal_reward = self.map[next_state]
-            normal_reward_prob = 1 - bad_reward_prob
-            to_return.append((next_state, bad_reward_prob, bad_reward))
-            to_return.append((next_state, normal_reward_prob, normal_reward))
-
-            return to_return
-
-        if next_state == (4, 6):
-            to_return = []
-            bad_reward = self.map[next_state] * (1 + 1)
-            bad_reward_prob = 0.5
-            normal_reward = self.map[next_state]
-            normal_reward_prob = 1 - bad_reward_prob
-            to_return.append((next_state, bad_reward_prob, bad_reward))
-            to_return.append((next_state, normal_reward_prob, normal_reward))
-
-            return to_return
-
-        reward = self.map[next_state]
-        return [(next_state, prob, reward)]
 
 
 def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
@@ -277,10 +144,9 @@ def print_successors(mdp : MDP,state : (int,int)):
         for succ,prob,rew in mdp.successor_prob_reward(state,action):
             print(f"[STATE {state}] [Action {action}] [Successor {succ}] : {prob} , {rew}")
 
+
 def main():
     pass
-
-
 
 
 if __name__ == '__main__':
