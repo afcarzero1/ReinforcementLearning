@@ -2,7 +2,7 @@ import numpy as np
 from termcolor import colored
 
 from mapbuilders import build_simple_map, build_blueberries_map, build_minotaour_map
-from mdp_modeling import MDPTerminalState, dynamicProgramSolver, printPath, print_successors
+from mdp_modeling import MDPTerminalState, dynamicProgramSolver, printPath, print_successors, valueIterationSolver
 
 
 class MapProblemNotChooseWall(MDPTerminalState):
@@ -11,7 +11,7 @@ class MapProblemNotChooseWall(MDPTerminalState):
     """
 
     def __init__(self, map_layout: np.ndarray, map_rewards: np.ndarray, final_state: (int, int),
-                 start_state: (int, int) = (0, 0), stay_enabled=True):
+                 start_state: (int, int) = (0, 0), stay_enabled=True,discount : float=1.0):
         self._action_map_built = False
         self._final_state = final_state
         self._initial_state = start_state
@@ -20,6 +20,7 @@ class MapProblemNotChooseWall(MDPTerminalState):
         # Define the problem statically
         self.map_rewards = map_rewards
         self._define_problem(map_layout)
+        self.discount_factor = discount
 
     def _define_problem(self, map_layout: np.ndarray):
         """
@@ -88,7 +89,7 @@ class MapProblemNotChooseWall(MDPTerminalState):
         return self._states
 
     def discount(self):
-        return 1
+        return self.discount_factor
 
     def successor_prob_reward(self, state, action):
         next_state = (0, 0)
@@ -297,22 +298,28 @@ class MapProblemMinotaur(MapProblemNotChooseWall):
             print()
 
 
-def solve_map(problem: MapProblemNotChooseWall, time_horizon=25):
+def solve_map(problem: MapProblemNotChooseWall,solver = dynamicProgramSolver,solver_kwargs ={}):
     print(colored("THE MAP IS :", 'blue'))
     print(problem._map)
     print(colored("The states are", 'blue'))
     print(problem.states())
-    _, level_actions = dynamicProgramSolver(problem, time_horizon)
+    level_values, level_actions = solver(problem, **solver_kwargs)
     print(colored("The path from initial state is", 'blue'))
+
+    min_level = min(level_actions.keys())
+    problem.print_values(level_values[min_level])
+    problem.print_actions(level_actions[min_level])
+
+    # todo fix print path function to work with answer of value iteration
     print(printPath(problem, level_actions))
 
 
 def main():
     # Build the MDP with a simple map
-    # map_layout, map_rewards, final_state = build_simple_map()
-    map_layout, map_rewards, final_state = build_blueberries_map()
+    map_layout, map_rewards, final_state = build_simple_map()
+    #map_layout, map_rewards, final_state = build_blueberries_map()
 
-    mdp = MapProblemNotChooseWall(map_layout, map_rewards, final_state, stay_enabled=False)
+    mdp = MapProblemNotChooseWall(map_layout, map_rewards, final_state, stay_enabled=True,discount = 0.9)
     # mdp = MapProblemRandom(map_layout,map_rewards,final_state,stay_enabled=False)
 
     ## Run a test to see if it is working
@@ -321,7 +328,9 @@ def main():
         print_successors(mdp, state)
 
     time_horizon = 25
-    solve_map(mdp, time_horizon)
+    #solve_map(mdp, dy)
+    parameters = {"interactive" : False}
+    solve_map(mdp,valueIterationSolver,parameters)
 
 
 def simulate_game(mdp: MDPTerminalState, level_actions: dict, verbose=False):
@@ -394,5 +403,5 @@ def minotaur():
 
 
 if __name__ == '__main__':
-    # main()
-    minotaur()
+    main()
+    #minotaur()

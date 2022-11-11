@@ -1,6 +1,7 @@
 """
 Module modeling MDP problems in a general way
 """
+import os
 from typing import Any
 
 import numpy as np
@@ -105,10 +106,11 @@ class MDPTerminalState(MDP):
     r"""
     Class representing a Markov Decision Process with a terminal state
     """
+
     def step(self, action) -> (Any, float, bool, bool, dict):
-        succ,rew,ter,trun,d = super(MDPTerminalState, self).step(action)
+        succ, rew, ter, trun, d = super(MDPTerminalState, self).step(action)
         terminal = self.is_end(succ)
-        return succ,rew,terminal,trun,d
+        return succ, rew, terminal, trun, d
 
     @abstractmethod
     def is_end(self, state: Any) -> bool:
@@ -117,7 +119,7 @@ class MDPTerminalState(MDP):
         Args:
             state(Any) : State to determine if it is terminal
         """
-        pass
+        raise NotImplementedError
 
 
 def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
@@ -199,6 +201,64 @@ def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
         problem.print_actions(best_action)
 
     return level_rewards, level_actions
+
+
+def valueIterationSolver(problem: MDP, epsilon: float = 1e-10, interactive: bool = False):
+    remaining_reward = {}  # Dictionary (state -> average remaining reward at a given level)
+
+    def Q(state, action):
+        su = sum(prob * (reward + problem.discount() * remaining_reward[newState]) \
+                 for newState, prob, reward in problem.successor_prob_reward(state, action))
+        return su
+
+    # Initialize the rewards
+    for state in problem.states():
+        remaining_reward[state] = 0
+
+    max_iterations = 1000000
+    T = max_iterations
+    for level in range(T, 0, -1):
+        # Apply the recursion algorithm
+        next_remaining_reward = {}  # (state -> remaining reward at level)
+        for state in problem.states():
+            # todo : add here support for mdp with terminal state
+            # if isinstance(problem,MDPTerminalState):
+
+            # We have the maximum of the Q function
+            next_remaining_reward[state] = max(Q(state, action) for action in problem.actions(state))
+
+        # Compute the difference for stopping conditions #todo correct epsilon using the doscunt factor
+        if max(abs(remaining_reward[state] - next_remaining_reward[state]) for state in problem.states()) < epsilon:
+            break
+
+        # Update the remaining values
+        remaining_reward = next_remaining_reward.copy()
+
+        # Read policy if interactive
+        if interactive:
+            policy = {}
+            for state in problem.states():
+                # todo : add also here mdoification for mdp with terminal state
+
+                actions = [(action,Q(state,action)) for action in problem.actions(state)]
+                act,val = max(actions, key=lambda x : x[1])
+                policy[state] = act
+
+
+            os.system('clear')
+            problem.print_values(remaining_reward)
+            problem.print_actions(policy)
+            input()
+    policy = {}
+    for state in problem.states():
+        # todo : add also here mdoification for mdp with terminal state
+
+        actions = [(action, Q(state, action)) for action in problem.actions(state)]
+        act, val = max(actions, key=lambda x: x[1])
+        policy[state] = act
+
+
+    return {1:remaining_reward},{1:policy}
 
 
 def printPath(problem: MDP, solution: dict):
