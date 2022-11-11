@@ -6,9 +6,10 @@ from typing import Any
 import numpy as np
 from abc import ABC, abstractmethod
 from termcolor import colored
+from gym import Env
 
 
-class MDP(ABC):
+class MDP(ABC, Env):
     internal_state = None
 
     @abstractmethod
@@ -66,16 +67,18 @@ class MDP(ABC):
     def print_actions(self, actions: dict):
         pass
 
-    def reset(self) -> Any:
+    def reset(self, **kwargs) -> Any:
         r"""
         Reset the internal state of the Markov Decision Process to the initial state.
         Return:
              state(Any) : The state in which the MDP is now
+             :param **kwargs:
         """
+        super(MDP, self).reset(**kwargs)
         self.internal_state = self.start_state()
         return self.internal_state
 
-    def step(self, action) -> (Any, float, float):
+    def step(self, action) -> (Any, float, bool, bool, dict):
         r"""
         Take a step using the action
         Args:
@@ -88,6 +91,10 @@ class MDP(ABC):
 
         choice: int = np.random.choice(np.arange(0, len(list_possilbe_states)), p=probs)
         self.internal_state = list_possilbe_states[choice][0]
+
+        succ, prob, rew = list_possilbe_states[choice]
+        return succ, rew, False, False, {"probabaility": prob}
+
         return list_possilbe_states[choice]
 
     def render(self):
@@ -98,6 +105,10 @@ class MDPTerminalState(MDP):
     r"""
     Class representing a Markov Decision Process with a terminal state
     """
+    def step(self, action) -> (Any, float, bool, bool, dict):
+        succ,rew,ter,trun,d = super(MDPTerminalState, self).step(action)
+        terminal = self.is_end(succ)
+        return succ,rew,terminal,trun,d
 
     @abstractmethod
     def is_end(self, state: Any) -> bool:
@@ -110,6 +121,12 @@ class MDPTerminalState(MDP):
 
 
 def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
+    """
+    Solves the given MDP problem using dynamic programming. Suited for solving problems having a finite horizon.
+    Args:
+        problem (MDP)
+    :return:
+    """
     T = simulation_time
 
     remaining_reward = {}  # Dictionary (state -> average remaining reward at a given level)

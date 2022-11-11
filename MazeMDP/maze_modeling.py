@@ -106,6 +106,7 @@ class MapProblemNotChooseWall(MDPTerminalState):
             next_state = state
 
         reward = self.map_rewards[next_state]
+
         return [(next_state, prob, reward)]
 
     def start_state(self):
@@ -337,7 +338,7 @@ def simulate_game(mdp: MDPTerminalState, level_actions: dict, verbose=False):
         decision = level_actions[time][current_state]
 
         # Use action and see next state
-        next_state, prob, reward = mdp.step(decision)
+        next_state, reward , terminal , _ , info = mdp.step(decision)
         # Collect the reward
         collected_reward += reward
 
