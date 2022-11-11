@@ -1,6 +1,7 @@
 """
-Module modeling MDP problems
+Module modeling MDP problems in a general way
 """
+from typing import Any
 
 import numpy as np
 from abc import ABC, abstractmethod
@@ -8,12 +9,26 @@ from termcolor import colored
 
 
 class MDP(ABC):
+    internal_state = None
+
     @abstractmethod
     def actions(self, state):
+        r"""
+        Return the actions available for a state
+        Args:
+            state (Any) : State for which actions must be returned
+        Return:
+            actions ([Any]) : List with the actions for the given state
+        """
         pass
 
     @abstractmethod
     def states(self):
+        r"""
+        Return all the states of the Markov Decision Process
+        Return:
+            states ([Any]) : List with the states of the Markov Decision Process
+        """
         pass
 
     @abstractmethod
@@ -21,10 +36,26 @@ class MDP(ABC):
         return 0, 0
 
     @abstractmethod
-    def successor_prob_reward(self, state, action):
+    def successor_prob_reward(self, state: Any, action: Any) -> [(Any, float, float)]:
+        r"""
+        Return in a list all the possible successors of the given state taking action with their respective probabilities and rewards.
+        Returned tuples have the format (state',Probability(state,action,state'),Reward(state,state'))
+
+        Args:
+            state(Any) : Starting state
+            action (Any) : Action taken
+        Return:
+            successors_probs_rewards ([(Any,float,float)] : List with tuples representing the successor , its probability and the reward
+        """
         pass
 
-    def discount(self):
+    def discount(self) -> float:
+        r"""
+        Return the discount factor of the Markov Decision Process
+
+        Return:
+            Floating point number between 0 and 1 representing the discount factor
+        """
         return 1
 
     @abstractmethod
@@ -35,10 +66,46 @@ class MDP(ABC):
     def print_actions(self, actions: dict):
         pass
 
+    def reset(self) -> Any:
+        r"""
+        Reset the internal state of the Markov Decision Process to the initial state.
+        Return:
+             state(Any) : The state in which the MDP is now
+        """
+        self.internal_state = self.start_state()
+        return self.internal_state
+
+    def step(self, action) -> (Any, float, float):
+        r"""
+        Take a step using the action
+        Args:
+            action(Any) : action to take
+        Return:
+            next_state_prob_reward
+        """
+        list_possilbe_states = self.successor_prob_reward(self.internal_state, action)
+        probs: [float] = [prob for next_state, prob, reward in list_possilbe_states]
+
+        choice: int = np.random.choice(np.arange(0, len(list_possilbe_states)), p=probs)
+        self.internal_state = list_possilbe_states[choice][0]
+        return list_possilbe_states[choice]
+
+    def render(self):
+        pass
+
 
 class MDPTerminalState(MDP):
+    r"""
+    Class representing a Markov Decision Process with a terminal state
+    """
+
     @abstractmethod
-    def is_end(self, state):
+    def is_end(self, state: Any) -> bool:
+        r"""
+        Determine if the given state is terminal
+        Args:
+            state(Any) : State to determine if it is terminal
+        """
         pass
 
 
@@ -62,7 +129,7 @@ def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
         if level == T:
             # maximize over reachable states (greedy solution)
             for state in problem.states():
-                maximum_reward_state = 0
+                maximum_reward_state = float("-inf")
                 best_state_action = None
                 # Compute the maximum reward reachable from this state. Evaluate all the possible actions we can take
                 # in this state. Take the action with the maximum possible reward (there might be several)
@@ -88,7 +155,7 @@ def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
             # Apply the recursion algorithm
             next_remaining_reward = {}  # (state -> remaining reward at level)
             for state in problem.states():
-                maximum_reward_state = 0
+                maximum_reward_state = float("-inf")
                 best_state_action = None
                 for action in problem.actions(state):
                     # Examine for the action the possible states it is possible to end up in. Iterate over them using
@@ -124,24 +191,25 @@ def printPath(problem: MDP, solution: dict):
     decisions = []
     state = problem.start_state()
     collected_reward = 0
-    for level in range(min_level, max_level+1):
+    for level in range(min_level, max_level + 1):
         level_decisions = solution[level][state]
         decisions.append((state, level_decisions))
 
         if level_decisions is None:
             break
 
-        state,_,level_reward = problem.successor_prob_reward(state, level_decisions)[0] #todo : understand how to deal with this
-        collected_reward +=level_reward
+        state, _, level_reward = problem.successor_prob_reward(state, level_decisions)[
+            0]  # todo : understand how to deal with this
+        collected_reward += level_reward
 
     print(collected_reward)
     return decisions
 
 
-def print_successors(mdp : MDP,state : (int,int)):
+def print_successors(mdp: MDP, state: (int, int)):
     actions = mdp.actions(state)
     for action in actions:
-        for succ,prob,rew in mdp.successor_prob_reward(state,action):
+        for succ, prob, rew in mdp.successor_prob_reward(state, action):
             print(f"[STATE {state}] [Action {action}] [Successor {succ}] : {prob} , {rew}")
 
 

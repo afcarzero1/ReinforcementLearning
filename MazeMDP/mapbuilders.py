@@ -52,3 +52,44 @@ def build_blueberries_map():
     return map_layout, map_rewards, (5, 5)
 
 
+
+def build_minotaour_map():
+
+    final_state = (6,5)
+    map_dimension = (7,8)
+
+
+    map_layout = np.zeros(map_dimension)
+    add_vertical_wall(map_layout,2,0,3)
+    add_horizontal_wall(map_layout,5,1,6)
+    add_horizontal_wall(map_layout,2,5,7)
+    map_layout[(1,5)] = WALL_REWARD
+    map_layout[(3,5)] = WALL_REWARD
+    map_layout[(6,4)] = WALL_REWARD
+
+    # Build the map rewards
+    map_rewards = np.ones(map_dimension) * -0.1
+    map_rewards[final_state] = 20
+    add_vertical_wall(map_rewards, 2, 0, 3,-30)
+    add_horizontal_wall(map_rewards, 5, 1, 6,-30)
+    add_horizontal_wall(map_rewards, 2, 5, 7,-30)
+    map_rewards[(1, 5)] = -30
+    map_rewards[(3, 5)] = -30
+    map_rewards[(6, 4)] = -30
+
+    return map_layout, map_rewards, final_state
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
