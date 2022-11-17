@@ -41,7 +41,7 @@ def build_blueberries_map():
     blueberrymap = [[0.0, 1.0, -float("inf"), 10.0, 10.0, 10.0, 10.0],
                     [0.0, 1.0, float("-inf"), 10.0, 0.0, 0.0, 10.0],
                     [0.0, 1.0, float("-inf"), 10.0, 0.0, 0.0, 10.0],
-                    [0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
+                    [0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
                     [0.0, float("-inf"), float("-inf"), float("-inf"), float("-inf"), float("-inf"), 10],
                     [0.0, 0.0, 0.0, 0.0, 0.0, 11.0, 10.0]]
     map_rewards = np.array(blueberrymap)
@@ -53,7 +53,8 @@ def build_blueberries_map():
 
 
 
-def build_minotaour_map():
+def build_minotaour_map(cell_reward = 0):
+
 
     final_state = (6,5)
     map_dimension = (7,8)
@@ -68,7 +69,7 @@ def build_minotaour_map():
     map_layout[(6,4)] = WALL_REWARD
 
     # Build the map rewards
-    map_rewards = np.ones(map_dimension) * -0.1
+    map_rewards = np.ones(map_dimension) * cell_reward
     map_rewards[final_state] = 20
     add_vertical_wall(map_rewards, 2, 0, 3,-30)
     add_horizontal_wall(map_rewards, 5, 1, 6,-30)

@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 from termcolor import colored
 
@@ -11,7 +13,7 @@ class MapProblemNotChooseWall(MDPTerminalState):
     """
 
     def __init__(self, map_layout: np.ndarray, map_rewards: np.ndarray, final_state: (int, int),
-                 start_state: (int, int) = (0, 0), stay_enabled=True,discount : float=1.0):
+                 start_state: (int, int) = (0, 0), stay_enabled=True, discount: float = 1.0):
         self._action_map_built = False
         self._final_state = final_state
         self._initial_state = start_state
@@ -163,9 +165,10 @@ class MapProblemRandom(MapProblemNotChooseWall):
 
 
 class MapProblemMinotaur(MapProblemNotChooseWall):
-    def __init__(self, minotaur_position: (int, int), *args, **kwargs):
+    def __init__(self, minotaur_position: (int, int), minotaur_stay=False, *args, **kwargs):
         super(MapProblemMinotaur, self).__init__(*args, **kwargs)
         self.minotaur_position = minotaur_position
+        self.minotaur_stay = minotaur_stay
 
     def _define_problem(self, map_layout: np.ndarray):
         self._map = map_layout
@@ -227,7 +230,7 @@ class MapProblemMinotaur(MapProblemNotChooseWall):
 
     def minotaur_actions(self, state):
 
-        minotaur_actions_list = ['up', 'dw', 'l', 'r','s']
+        minotaur_actions_list = ['up', 'dw', 'l', 'r'] if not self.minotaur_stay else ['up', 'dw', 'l', 'r', 's']
 
         if state[0] <= 0:
             minotaur_actions_list.remove('up')
@@ -257,7 +260,7 @@ class MapProblemMinotaur(MapProblemNotChooseWall):
             elif action == 'r':
                 next_state = (state[0], state[1] + 1)
             elif action == 's':
-                next_state = (state[0],state[1])
+                next_state = (state[0], state[1])
 
             mino_succ.append((next_state, prob))
         return mino_succ
@@ -270,6 +273,9 @@ class MapProblemMinotaur(MapProblemNotChooseWall):
             for j in range(self._map.shape[1]):
                 tup = (i, j) + self.minotaur_position
                 str_to_print = actions[tup] if actions[tup] is not None else "None"
+                if self._map[(i, j)] == 1:
+                    str_to_print = "X"
+
                 print("{:>5}".format(str_to_print), end=" ")
             print()
 
@@ -286,19 +292,25 @@ class MapProblemMinotaur(MapProblemNotChooseWall):
         minotaur_pos = (self.internal_state[2], self.internal_state[3])
         for i in range(self._map.shape[0]):
             for j in range(self._map.shape[1]):
-                if (i,j) == player_pos and (i,j) == minotaur_pos:
+                if (i, j) == player_pos and (i, j) == minotaur_pos:
                     print(colored("PD", "red"), end=" ")
                 elif (i, j) == player_pos:
                     print(colored("P", "blue"), end=" ")
                 elif (i, j) == minotaur_pos:
                     print(colored("M", 'red'), end=" ")
                 else:
-                    print("o", end=" ")
+
+                    if self._map[(i, j)] == 1:
+                        print(colored("x", 'green'), end=" ")
+                    else:
+                        print("o", end=" ")
 
             print()
 
 
-def solve_map(problem: MapProblemNotChooseWall,solver = dynamicProgramSolver,solver_kwargs ={}):
+
+
+def solve_map(problem: MapProblemNotChooseWall, solver=dynamicProgramSolver, solver_kwargs={}):
     print(colored("THE MAP IS :", 'blue'))
     print(problem._map)
     print(colored("The states are", 'blue'))
@@ -316,11 +328,11 @@ def solve_map(problem: MapProblemNotChooseWall,solver = dynamicProgramSolver,sol
 
 def main():
     # Build the MDP with a simple map
-    map_layout, map_rewards, final_state = build_simple_map()
-    #map_layout, map_rewards, final_state = build_blueberries_map()
+    map_layout, map_rewards, final_state = build_blueberries_map()
+    # map_layout, map_rewards, final_state = build_blueberries_map()
 
-    mdp = MapProblemNotChooseWall(map_layout, map_rewards, final_state, stay_enabled=True,discount = 0.9)
-    # mdp = MapProblemRandom(map_layout,map_rewards,final_state,stay_enabled=False)
+    # mdp = MapProblemNotChooseWall(map_layout, map_rewards, final_state, stay_enabled=True,discount = 0.9)
+    mdp = MapProblemNotChooseWall(map_layout, map_rewards, final_state, stay_enabled=True)
 
     ## Run a test to see if it is working
 
@@ -328,9 +340,10 @@ def main():
         print_successors(mdp, state)
 
     time_horizon = 25
-    #solve_map(mdp, dy)
-    parameters = {"interactive" : False}
-    solve_map(mdp,valueIterationSolver,parameters)
+    # solve_map(mdp, dy)
+    parameters = {"interactive": False}
+    parameters = {"simulation_time": 27}
+    solve_map(mdp, dynamicProgramSolver, parameters)
 
 
 def simulate_game(mdp: MDPTerminalState, level_actions: dict, verbose=False):
@@ -347,7 +360,7 @@ def simulate_game(mdp: MDPTerminalState, level_actions: dict, verbose=False):
         decision = level_actions[time][current_state]
 
         # Use action and see next state
-        next_state, reward , terminal , _ , info = mdp.step(decision)
+        next_state, reward, terminal, _, info = mdp.step(decision)
         # Collect the reward
         collected_reward += reward
 
@@ -358,7 +371,30 @@ def simulate_game(mdp: MDPTerminalState, level_actions: dict, verbose=False):
         current_state = next_state
 
     success = True if mdp.is_goal(current_state) else False
-    return success,collected_reward
+    return success, collected_reward
+
+
+def simulate_infinte_game(mdp: MDPTerminalState, policy: dict, verbose: bool = False):
+    current_state = mdp.reset()
+    if verbose:
+        mdp.render()
+
+    collected_reward = 0
+    while True:
+
+        decision = policy[current_state]
+        next_state, reward, terminal, _, info = mdp.step(decision)
+        collected_reward += reward
+        if verbose:
+            print(f"{current_state} -> {next_state} : {reward}")
+            mdp.render()
+
+        current_state = next_state
+        if terminal:
+            break
+
+    success = True if mdp.is_goal(current_state) else False
+    return success, collected_reward
 
 
 def minotaur():
@@ -374,34 +410,44 @@ def minotaur():
     solve_map(mdp, time_horizon)
     """
 
-    mdp = MapProblemMinotaur((6, 5), map_layout, map_rewards, final_state, stay_enabled=True)
+    mdp = MapProblemMinotaur((6, 5), map_layout=map_layout, map_rewards=map_rewards, final_state=final_state,
+                             stay_enabled=True)
     print(len(mdp.states()))
     # for state in mdp.states():
     # print_successors(mdp, state)
     print(map_layout)
-    level_rewards, level_actions = dynamicProgramSolver(mdp, 16)
-
+    level_rewards, level_actions = dynamicProgramSolver(mdp, 20)
 
     # Show couple of games
+    np.random.seed(1)
     simulate_game(mdp, level_actions, verbose=True)
-
 
     successes = 0
     episodes = 1000
     total_reward = 0
-    for _ in range(0,episodes):
-        success,reward=simulate_game(mdp, level_actions, verbose=False)
+    for _ in range(0, episodes):
+        success, reward = simulate_game(mdp, level_actions, verbose=False)
         if success:
-            successes+=1
-        total_reward+=reward
+            successes += 1
+        total_reward += reward
 
-    successes = successes/episodes
+    successes = successes / episodes
     total_reward = total_reward / episodes
 
     print(f"SUCCESS RATE : {successes}")
     print(f"Avg Reward : {total_reward}")
 
+    ### Solving with value iteration
+    parameters = {"interactive": False, "epsilon": 1e-2}
+    mdp.discount_factor = 29 / 30
+
+    reward, policy = valueIterationSolver(mdp, **parameters)
+
+    simulate_infinte_game(mdp, policy, True)
+
+    solve_map(mdp, valueIterationSolver, parameters)
+
 
 if __name__ == '__main__':
-    main()
-    #minotaur()
+    # main()
+    minotaur()
