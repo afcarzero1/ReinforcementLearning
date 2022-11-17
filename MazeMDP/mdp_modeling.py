@@ -122,7 +122,7 @@ class MDPTerminalState(MDP):
         raise NotImplementedError
 
 
-def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
+def dynamicProgramSolver(problem: MDP, simulation_time: int = 5,verbose=False):
     """
     Solves the given MDP problem using dynamic programming. Suited for solving problems having a finite horizon.
     Args:
@@ -196,9 +196,13 @@ def dynamicProgramSolver(problem: MDP, simulation_time: int = 5):
             level_actions[level] = best_action.copy()
             # print(remaining_reward)
 
+
+
+
         # Print for having an idea
-        problem.print_values(remaining_reward)
-        problem.print_actions(best_action)
+        if verbose:
+            problem.print_values(remaining_reward)
+            problem.print_actions(best_action)
 
     return level_rewards, level_actions
 
@@ -227,13 +231,14 @@ def valueIterationSolver(problem: MDP, epsilon: float = 1e-10, interactive: bool
             # We have the maximum of the Q function
             next_remaining_reward[state] = max(Q(state, action) for action in problem.actions(state))
 
-        # Compute the difference for stopping conditions #todo correct epsilon using the doscunt factor
+        # Compute the difference for stopping conditions
         if max(abs(remaining_reward[state] - next_remaining_reward[state]) for state in problem.states()) < epsilon:
             break
 
         # Update the remaining values
         remaining_reward = next_remaining_reward.copy()
-
+        if level % 10 == 0:
+            print(colored("[ITERATION] {:5}/ {:10}".format(T-level,T),'green'))
         # Read policy if interactive
         if interactive:
             policy = {}

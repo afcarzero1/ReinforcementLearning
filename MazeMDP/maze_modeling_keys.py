@@ -1,24 +1,28 @@
+import time
 from typing import Any
 
 from termcolor import colored
 
 from MazeMDP.mapbuilders import build_minotaour_map
-from MazeMDP.mdp_modeling import MDPTerminalState, dynamicProgramSolver, print_successors
+from MazeMDP.maze_modeling import simulate_game, simulate_infinte_game
+from MazeMDP.mdp_modeling import MDPTerminalState, dynamicProgramSolver, print_successors, valueIterationSolver
 import numpy as np
 
 class MapProblemMinotaurKeys(MDPTerminalState):
 
-    def __init__(self, map_layout: np.ndarray, map_rewards: np.ndarray, start_player: (int, int) = (0, 0),
+    def __init__(self, map_layout: np.ndarray, start_player: (int, int) = (0, 0),
                  start_minotaur: (int, int) = (5, 5)
                  , start_keys: bool = False, end_cell: (int, int) = (5, 5),
-                 key_cell: (int, int) = (0, 5), allow_minotaur_stay: bool = True,probability_uniform : float = 0.5):
+                 key_cell: (int, int) = (0, 5), allow_minotaur_stay: bool = True,
+                 probability_uniform : float = 0.5,discount_factor:float=1.0):
+
 
 
         self._map = map_layout
-        self._map_rewards = map_rewards
         self._actions = ['up', 'dw', 'l', 'r', 's']
         self._allow_minotaur_stay = allow_minotaur_stay
         self._probability_uniform = probability_uniform
+        self._discount_factor = discount_factor
 
         # Build the start state
         self._start_state = start_player + start_minotaur + (1,) if start_keys else (0,)
@@ -54,14 +58,13 @@ class MapProblemMinotaurKeys(MDPTerminalState):
             state_actions = self._player_actions((state[0], state[1]), check_walls=True)
             minotaur_actions = self._player_actions((state[2], state[3]), check_walls=False,
                                                     allow_stay=self._allow_minotaur_stay)
-
+            self.minotaur_state_to_action[(state[2], state[3])] = minotaur_actions
             # Restrict the action space (equivalent to changing transition matrix)
             if state[0] == state[2] and state[1] == state[3]:
                 self.player_state_to_action[state] = ['s']
-                self.minotaur_state_to_action[(state[2], state[3])] = ['s']
             else:
                 self.player_state_to_action[state] = state_actions
-                self.minotaur_state_to_action[(state[2], state[3])] = minotaur_actions
+
 
     def _player_actions(self, player_state: (int, int), check_walls=True, allow_stay=True):
         actions = self._actions.copy()
@@ -160,9 +163,12 @@ class MapProblemMinotaurKeys(MDPTerminalState):
         return 0
 
     def minotaur_succ_prob(self, state: (int, int, int, int, int)):
-
         # Compute uniform moves
         mino_state = (state[2], state[3])
+
+        # If we catched the player do not move
+        if state[0] == state[2] and state[1] == state[3]:
+            return [(mino_state,1)]
         mino_actions = self.minotaur_state_to_action[mino_state]
         prob = 1 / len(mino_actions) * self._probability_uniform
 
@@ -227,7 +233,7 @@ class MapProblemMinotaurKeys(MDPTerminalState):
                 return 'up' if sgn_delta_y == -1 else 'dw'
 
     def discount(self) -> float:
-        return 1
+        return self._discount_factor
 
     def print_actions(self, actions: dict):
         for i in range(self._map.shape[0]):
@@ -293,48 +299,104 @@ class MapProblemMinotaurKeys(MDPTerminalState):
     def is_end(self, state: Any) -> bool:
         return (state[0],state[1]) == self._end_cell or (state[0]==state[2] and state[1]==state[3])
 
+    def is_goal(self,state : Any) -> bool:
+        return (state[0],state[1]) == self._end_cell and not (state[0]==state[2] and state[1]==state[3])
 
 
+PRINT_LENGTH = 100
 
 def main():
 
+    t=time.time()
+    # 1.c
+    #solve_minotaur_finite_horizon_with_keys()
+
+    print(time.time()-t)
+    t = time.time()
+    # 1.d
+    solve_minotaur_infinite_horizon_with_keys()
+    print(time.time()-t)
+
+
+
+
+def solve_minotaur_finite_horizon_with_keys():
     # Generate the map layout
-    map_layout, map_rewards, final_state = build_minotaour_map(cell_reward=0)
-    map_rewards = map_rewards * 0
+    map_layout, _, final_state = build_minotaour_map(cell_reward=0)
 
     # Create the MDP
     mdp = MapProblemMinotaurKeys(map_layout=map_layout,
-                                 map_rewards=map_rewards,
-                                 start_player=(0,0),
-                                 start_minotaur=(6,6),
+                                 start_player=(0, 0),
+                                 start_minotaur=(6, 6),
                                  start_keys=True,
                                  end_cell=final_state,
-                                 key_cell=(0,7),
+                                 key_cell=(0, 7),
                                  allow_minotaur_stay=False,
-                                 probability_uniform=0.5)
+                                 probability_uniform=1)
 
     # See number of states and map layout
     print(len(mdp.states()))
     print(map_layout)
 
     # Print the successors
-    print("A SUCCESSOR IS")
+    print(colored("-" * 25 + "STATES" + "-" * 25, 'red'))
 
     for _ in range(10):
-        state_example = mdp.states()[np.random.randint(0,len(mdp.states()))]
-        print(colored("-"*50,'red'))
-        print_successors(mdp,state_example)
+        state_example = mdp.states()[np.random.randint(0, len(mdp.states()))]
+        print(colored("-" * 50, 'red'))
+        print_successors(mdp, state_example)
 
     print(colored("-" * 50, 'red'))
-    print_successors(mdp,(6,5,5,5,0))
+    print_successors(mdp, (6, 5, 5, 5, 0))
     print(colored("-" * 50, 'red'))
     print_successors(mdp, (6, 6, 5, 5, 0))
 
+    # Solve the MDP
+    print(colored("-" * 25 + "SOLVE THE MDP" + "-" * 25, 'red'))
+    time_horizon = 20
+    level_rewards, level_actions = dynamicProgramSolver(mdp, time_horizon, verbose=True)
 
+    print(colored("-" * 25 + "SINGLE GAME SIMULATION" + "-" * 25, 'red'))
+    simulate_game(mdp, level_actions, verbose=True)
+
+def solve_minotaur_infinite_horizon_with_keys():
+    # Generate the map layout
+    map_layout, _, final_state = build_minotaour_map(cell_reward=0)
+
+    # Create the MDP
+    mdp = MapProblemMinotaurKeys(map_layout=map_layout,
+                                 start_player=(0, 0),
+                                 start_minotaur=(6, 6),
+                                 start_keys=True,
+                                 end_cell=final_state,
+                                 key_cell=(0, 7),
+                                 allow_minotaur_stay=False,
+                                 probability_uniform=1,
+                                 discount_factor=29/30)
+
+    # See number of states and map layout
+    print(len(mdp.states()))
+    print(map_layout)
+
+    # Print the successors
+    print(colored("-" * 25 + "STATES" + "-" * 25, 'red'))
+
+    for _ in range(10):
+        state_example = mdp.states()[np.random.randint(0, len(mdp.states()))]
+        print(colored("-" * 50, 'red'))
+        print_successors(mdp, state_example)
+
+    print(colored("-" * 50, 'red'))
+    print_successors(mdp, (6, 5, 5, 5, 0))
+    print(colored("-" * 50, 'red'))
+    print_successors(mdp, (6, 6, 5, 5, 0))
 
     # Solve the MDP
-    time_horizon = 50
-    level_rewards, level_actions = dynamicProgramSolver(mdp, time_horizon)
+    print(colored("-" * 25 + "SOLVE THE MDP" + "-" * 25, 'red'))
+    level_rewards, level_actions = valueIterationSolver(mdp,epsilon=0.01,interactive=False)
+
+    print(colored("-" * 25 + "SINGLE GAME SIMULATION" + "-" * 25, 'red'))
+    simulate_infinte_game(mdp, level_actions[1], verbose=True)
 
 
 if __name__ == '__main__':
