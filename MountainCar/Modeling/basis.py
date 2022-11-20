@@ -99,6 +99,8 @@ class LinearAprox:
         weights = self.weights[action]  # 1xm
         return np.dot(weights, transformed)
 
+    def get_scaled_learning_rate(self):
+        pass
 
 class SarsaLambda:
     def __init__(self,
@@ -106,43 +108,49 @@ class SarsaLambda:
                  number_actions,
                  hidden_size: int = 10,
                  discount_facotor_gamma: float = 0.99,
-                 lambda_sarsa: float = 0.9):
-        self.number_actions = number_actions
-        self.hidden_size = hidden_size
-        self.discount_factor_gamma = discount_facotor_gamma
-        self.lambda_sarsa = lambda_sarsa
-        self.weights = np.random.random((number_actions, hidden_size)) # n_a x h_s
+                 lambda_sarsa: float = 0.9,
+                 momentum : float = 0):
+        self.number_actions: int = number_actions
+        self.hidden_size: int = hidden_size
+        self.discount_factor_gamma: float = discount_facotor_gamma
+        self.lambda_sarsa: float = lambda_sarsa
+        self.momentum = momentum
+        self.weights: np.ndarray = np.random.random((number_actions, hidden_size))  # n_a x h_s
+        self.velocity : np.ndarray = np.random.random((number_actions, hidden_size))
 
         self.basis = FourierBasis(input_size=number_states, output_size=hidden_size)
         self.linear_aprox = LinearAprox(self.basis, self.weights)
 
         # Initialize eligebility trace
-        self.eligibility_trace = np.zeros((number_actions, hidden_size)) # n_a x h_s
+        self.eligibility_trace = np.zeros((number_actions, hidden_size))  # n_a x h_s
+
+        # clip it
+        np.clip(self.eligibility_trace,-5,5)
 
     def reset(self):
         self.eligibility_trace = np.zeros((self.number_actions, self.hidden_size))
 
     def forward(self,
-                state_t : np.ndarray,
-                action_t : int,
-                reward_t : float,
-                state_t_next : np.ndarray,
-                action_t_next : int,
-                learning_rate_t : float):
-        # Compute the states in the basis. Using the approximation
-        transformed_t = self.basis(state_t)  # this is also gradient of elegebility trace wrt w_t
-        transformed_t_next = self.basis(state_t_next)
-
+                state_t: np.ndarray,
+                action_t: int,
+                reward_t: float,
+                state_t_next: np.ndarray,
+                action_t_next: int,
+                learning_rate_t: float,
+                ):
         ## UPDATE ELGIBILITY TRACE
-        self.update_elegibility_trace(action_t,transformed_t)
+        self.update_elegibility_trace(action_t, state_t)
 
         ## UPDATE WEIGHTS
-        delta = self.compute_delta(transformed_t,transformed_t_next,reward_t)
-        # w <- w + alpha * delta * eligibility
-        self.weights = self.weights + learning_rate_t * delta * self.eligibility_trace
+        delta = self.compute_delta(state_t,state_t_next,action_t,action_t_next)
 
-    def update_elegibility_trace(self, action_t: int, gradient):
+        # v <- mv + alpha * delta * e
+        # w <- w + valpha * delta * eligibility
+        self.velocity = self.velocity * self.momentum + learning_rate_t * delta * self.eligibility_trace
+        self.weights = self.weights + self.velocity
 
+    def update_elegibility_trace(self, action_t: int, state_t : np.ndarray):
+        transformed_t = self.basis(state_t)
         # Create boolean vector
         actions = np.zeros(self.number_actions)
         actions[action_t] = 1
@@ -152,12 +160,17 @@ class SarsaLambda:
                                  + gradient * actions
 
     def compute_delta(self,
-                      transformed_t : np.ndarray,
-                      transformed_t_next : np.ndarray,
-                      reward_t : float) -> float:
-
+                      state_t: np.ndarray,
+                      state_t_next: np.ndarray,
+                      action_t : int,
+                      action_t_next : int,
+                      reward_t: float) -> float:
         # delta_t = r_t + gamma * Q(s_{t+1},a_{t+1}) - Q(s_t,a_t)
-        return reward_t + self.discount_factor_gamma * transformed_t_next - transformed_t
+
+        q_t_next = self.linear_aprox(state_t_next,action_t_next)
+        q_t = self.linear_aprox(state_t,action_t)
+        return reward_t + self.discount_factor_gamma * q_t_next - q_t
+
 
 def test_basis():
     state = np.ones(2)  # state = [1,1]
