@@ -50,6 +50,9 @@ class FourierBasis(Basis):
             eta (np.ndarray) : matrix to be used as basis. If not provided 0 matrix will be used
         """
         super().__init__(input_size, output_size)
+
+        # out_size x n
+        # eta_i = self.eta[i]
         self.eta: np.ndarray = np.zeros((self._output_size, self._input_size)) if eta is None else eta
         if eta is None:
             print("[WARNING] using zero eta matrix")
@@ -66,6 +69,11 @@ class FourierBasis(Basis):
     def save_eta(self, file_name="./eta_fourier_weights.pkl"):
         with open(file_name, "wb") as f:
             pickle.dump(self.eta, f)
+
+    def scale_learning_rate(self, alpha : float):
+        norm = np.sqrt(np.square(self.eta).sum(axis=1)) # ax1
+        return alpha / norm
+
 
 
 class LinearAprox:
@@ -142,10 +150,11 @@ class SarsaLambda:
         self.update_elegibility_trace(action_t, state_t)
 
         ## UPDATE WEIGHTS
-        delta = self.compute_delta(state_t,state_t_next,action_t,action_t_next)
+        delta = self.compute_delta(state_t,state_t_next,action_t,action_t_next,reward_t)
 
         # v <- mv + alpha * delta * e
         # w <- w + valpha * delta * eligibility
+        # todo : use here self.base.scale_learning_rate to scale
         self.velocity = self.velocity * self.momentum + learning_rate_t * delta * self.eligibility_trace
         self.weights = self.weights + self.velocity
 
@@ -157,7 +166,7 @@ class SarsaLambda:
 
         # Update eligibility trace
         self.eligibility_trace = self.discount_factor_gamma * self.lambda_sarsa * self.eligibility_trace \
-                                 + gradient * actions
+                                 + transformed_t * actions
 
     def compute_delta(self,
                       state_t: np.ndarray,
