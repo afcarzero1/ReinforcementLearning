@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Union
 
 import numpy as np
 import pickle
@@ -40,21 +41,30 @@ class Basis(ABC):
 
 
 class FourierBasis(Basis):
-    def __init__(self, input_size: int, output_size: int, eta: np.ndarray = None,
+    def __init__(self, input_size: int, output_size: int, eta: Union[np.ndarray, str] = None,
                  p: int = 2):
         """
         A fourier basis implementation.
         Args:
             input_size (int) : dimensionality of the input
             output_size (int) : dimensionality of the output
-            eta (np.ndarray) : matrix to be used as basis. If not provided 0 matrix will be used
+            eta (np.ndarray) : Matrix to be used as basis. It must have dimension (out_size x input_size).
+                If not provided 0 matrix will be used
         """
         super().__init__(input_size, output_size)
 
         # out_size x n
+        # basis_dimension x state_dimension
         # eta_i = self.eta[i]
         self.eta: np.ndarray = np.zeros((self._output_size, self._input_size)) if eta is None else eta
-        if eta is None:
+
+        if eta == "permutation":
+            m = np.zeros(self._output_size * self._input_size)
+            p = np.random.permutation(self._output_size * self._input_size)
+            ones = int(len(m) / 2)
+            m[p[0:ones]] = 1
+            self.eta = m.reshape(self._output_size, self._input_size)
+        elif eta is None:
             print("[WARNING] using zero eta matrix")
 
         assert (self.eta.shape[0] == self._output_size and self.eta.shape[1] == self._input_size)
@@ -62,7 +72,14 @@ class FourierBasis(Basis):
     def __call__(self, state: np.ndarray):
         return self.to_basis(state)
 
-    def to_basis(self, vector: np.ndarray):
+    def to_basis(self, vector: np.ndarray) -> np.ndarray:
+        """
+        Transform the vector to the Fourirer Basis
+        Args:
+            vector (np.ndarray) : Vector with size (input_size,)
+        Returns:
+             phi (np.ndarray) : Transformed vector of size (output_size,)
+        """
         assert (vector.shape[0] == self._input_size)
         return np.cos(np.pi * np.dot(self.eta, vector))
 
@@ -70,10 +87,10 @@ class FourierBasis(Basis):
         with open(file_name, "wb") as f:
             pickle.dump(self.eta, f)
 
-    def scale_learning_rate(self, alpha : float):
-        norm = np.sqrt(np.square(self.eta).sum(axis=1)) # ax1
+    def scale_learning_rate(self, alpha: float):
+        norm = np.sqrt(np.square(self.eta).sum(axis=1))  # (basis_dimension x 1) or (output_dimension x 1)
+        norm[norm == 0] = 1  # When the norm is zero do not scale
         return alpha / norm
-
 
 
 class LinearAprox:
@@ -97,46 +114,71 @@ class LinearAprox:
         assert basis.output_size() == weights.shape[1]
 
     def __call__(self, state, action):
+        """
+        Linear approximator of a function
+        Args:
+            state (np.ndarray) : vector representing the input state. Must have size of the state (state_dim,)
+            action(int) : The action taken as index
+        Returns:
+             approximation (float) : Returns a scalar representing the approximation
+        """
         if action >= self.weights.shape[0] or action < 0:
             raise ValueError(f"Action not allowed {action}")
 
         # Transform the state with the basis
         transformed = self.basis(state)  # m x 1
 
-        # use the weights
-        weights = self.weights[action]  # 1xm
+        # use the weights corresponding to the action
+        weights = self.weights[action]  # 1 x m
+
+        # Compute the scalar product
         return np.dot(weights, transformed)
 
-    def get_scaled_learning_rate(self):
-        pass
 
 class SarsaLambda:
     def __init__(self,
-                 number_states,
+                 state_dimension,
                  number_actions,
                  hidden_size: int = 10,
                  discount_facotor_gamma: float = 0.99,
                  lambda_sarsa: float = 0.9,
-                 momentum : float = 0):
+                 momentum: float = 0,
+                 eta = "permutation"):
         self.number_actions: int = number_actions
         self.hidden_size: int = hidden_size
         self.discount_factor_gamma: float = discount_facotor_gamma
         self.lambda_sarsa: float = lambda_sarsa
         self.momentum = momentum
         self.weights: np.ndarray = np.random.random((number_actions, hidden_size))  # n_a x h_s
-        self.velocity : np.ndarray = np.random.random((number_actions, hidden_size))
+        self.velocity: np.ndarray = np.random.random((number_actions, hidden_size))
 
-        self.basis = FourierBasis(input_size=number_states, output_size=hidden_size)
+        self.basis = FourierBasis(input_size=state_dimension, output_size=hidden_size, eta=eta)
         self.linear_aprox = LinearAprox(self.basis, self.weights)
 
         # Initialize eligebility trace
         self.eligibility_trace = np.zeros((number_actions, hidden_size))  # n_a x h_s
 
-        # clip it
-        np.clip(self.eligibility_trace,-5,5)
-
     def reset(self):
         self.eligibility_trace = np.zeros((self.number_actions, self.hidden_size))
+        self.velocity = np.random.random(
+            (self.number_actions, self.hidden_size))  # todo : verufy this is correct initialization
+
+    def epsilon_greedy(self, state, epsilon=0.1):
+
+        if np.random.binomial(size=1, n=1, p=epsilon) == 1:
+            # Take random action
+            return np.random.randint(0, self.number_actions)
+        else:
+            # Compute best action using learnt Q function
+            best_q = float("-inf")
+            best_action = 0
+            for action in range(self.number_actions):
+                q = self.linear_aprox(state, action)
+                if q > best_q:
+                    best_q = q
+                    best_action = action
+
+            return best_action
 
     def forward(self,
                 state_t: np.ndarray,
@@ -147,37 +189,42 @@ class SarsaLambda:
                 learning_rate_t: float,
                 ):
         ## UPDATE ELGIBILITY TRACE
-        self.update_elegibility_trace(action_t, state_t)
+        self.update_eligibility_trace(action_t, state_t)
 
         ## UPDATE WEIGHTS
-        delta = self.compute_delta(state_t,state_t_next,action_t,action_t_next,reward_t)
+        delta = self.compute_delta(state_t, state_t_next, action_t, action_t_next, reward_t)
 
         # v <- mv + alpha * delta * e
         # w <- w + valpha * delta * eligibility
         # todo : use here self.base.scale_learning_rate to scale
-        self.velocity = self.velocity * self.momentum + learning_rate_t * delta * self.eligibility_trace
+        scaled_learning_rate: np.ndarray = self.basis.scale_learning_rate(learning_rate_t)  # (h_s,)
+
+        self.velocity = self.velocity * self.momentum + learning_rate_t * delta * self.eligibility_trace  # ()
         self.weights = self.weights + self.velocity
 
-    def update_elegibility_trace(self, action_t: int, state_t : np.ndarray):
+    def update_eligibility_trace(self, action_t: int, state_t: np.ndarray):
         transformed_t = self.basis(state_t)
-        # Create boolean vector
-        actions = np.zeros(self.number_actions)
-        actions[action_t] = 1
+        # Create boolean matrix
+        actions = np.zeros((self.number_actions,self.hidden_size))
+        actions[action_t,:] = 1
 
         # Update eligibility trace
         self.eligibility_trace = self.discount_factor_gamma * self.lambda_sarsa * self.eligibility_trace \
                                  + transformed_t * actions
 
+        # clip it
+        self.eligibility_trace = np.clip(self.eligibility_trace, -5, 5)
+
     def compute_delta(self,
                       state_t: np.ndarray,
                       state_t_next: np.ndarray,
-                      action_t : int,
-                      action_t_next : int,
+                      action_t: int,
+                      action_t_next: int,
                       reward_t: float) -> float:
         # delta_t = r_t + gamma * Q(s_{t+1},a_{t+1}) - Q(s_t,a_t)
 
-        q_t_next = self.linear_aprox(state_t_next,action_t_next)
-        q_t = self.linear_aprox(state_t,action_t)
+        q_t_next = self.linear_aprox(state_t_next, action_t_next)
+        q_t = self.linear_aprox(state_t, action_t)
         return reward_t + self.discount_factor_gamma * q_t_next - q_t
 
 
