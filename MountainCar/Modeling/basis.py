@@ -197,9 +197,12 @@ class SarsaLambda:
         # v <- mv + alpha * delta * e
         # w <- w + valpha * delta * eligibility
         # todo : use here self.base.scale_learning_rate to scale
-        scaled_learning_rate: np.ndarray = self.basis.scale_learning_rate(learning_rate_t)  # (h_s,)
+        scaled_learning_rate: np.ndarray = self.basis.scale_learning_rate(learning_rate_t).reshape(1,self.hidden_size)  # (h_s,)
 
-        self.velocity = self.velocity * self.momentum + learning_rate_t * delta * self.eligibility_trace  # ()
+        # repeat
+        scaled_learning_rate = np.repeat(scaled_learning_rate,repeats=self.number_actions,axis=0) #(num_action,hidden_size)
+
+        self.velocity = self.velocity * self.momentum + scaled_learning_rate * delta * self.eligibility_trace  # ()
         self.weights = self.weights + self.velocity
 
     def update_eligibility_trace(self, action_t: int, state_t: np.ndarray):
