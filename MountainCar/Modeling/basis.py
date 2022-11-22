@@ -1,5 +1,6 @@
+import os
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Union, Any
 
 import numpy as np
 import pickle
@@ -64,6 +65,8 @@ class FourierBasis(Basis):
             ones = int(len(m) / 2)
             m[p[0:ones]] = 1
             self.eta = m.reshape(self._output_size, self._input_size)
+        elif eta == "random":
+            self.eta = np.random.random((self.output_size(), self.input_size()))
         elif eta is None:
             print("[WARNING] using zero eta matrix")
 
@@ -81,6 +84,7 @@ class FourierBasis(Basis):
              phi (np.ndarray) : Transformed vector of size (output_size,)
         """
         assert (vector.shape[0] == self._input_size)
+
         return np.cos(np.pi * np.dot(self.eta, vector))
 
     def save_eta(self, file_name="./eta_fourier_weights.pkl"):
@@ -139,31 +143,37 @@ class SarsaLambda:
     def __init__(self,
                  state_dimension,
                  number_actions,
-                 hidden_size: int = 10,
-                 discount_facotor_gamma: float = 0.99,
+                 eta: np.ndarray,
+                 discount_factor_gamma: float = 0.99,
                  lambda_sarsa: float = 0.9,
                  momentum: float = 0,
-                 eta = "permutation"):
+                 ):
         self.number_actions: int = number_actions
-        self.hidden_size: int = hidden_size
-        self.discount_factor_gamma: float = discount_facotor_gamma
+        self.hidden_size: int = eta.shape[0]
+        self.discount_factor_gamma: float = discount_factor_gamma
         self.lambda_sarsa: float = lambda_sarsa
         self.momentum = momentum
-        self.weights: np.ndarray = np.random.random((number_actions, hidden_size))  # n_a x h_s
-        self.velocity: np.ndarray = np.random.random((number_actions, hidden_size))
+        self.weights: np.ndarray = np.random.random((number_actions, self.hidden_size))  # n_a x h_s
+        self.velocity: np.ndarray = np.zeros((number_actions, self.hidden_size))
 
-        self.basis = FourierBasis(input_size=state_dimension, output_size=hidden_size, eta=eta)
+        self.basis = FourierBasis(input_size=state_dimension, output_size=self.hidden_size, eta=eta)
         self.linear_aprox = LinearAprox(self.basis, self.weights)
 
         # Initialize eligebility trace
-        self.eligibility_trace = np.zeros((number_actions, hidden_size))  # n_a x h_s
+        self.eligibility_trace = np.zeros((number_actions, self.hidden_size))  # n_a x h_s
 
     def reset(self):
         self.eligibility_trace = np.zeros((self.number_actions, self.hidden_size))
-        self.velocity = np.random.random(
+        self.velocity = np.zeros(
             (self.number_actions, self.hidden_size))  # todo : verufy this is correct initialization
 
     def epsilon_greedy(self, state, epsilon=0.1):
+        """
+        Choose an action using a greedy policy.
+        :param state:
+        :param epsilon:
+        :return:
+        """
 
         if np.random.binomial(size=1, n=1, p=epsilon) == 1:
             # Take random action
@@ -195,21 +205,27 @@ class SarsaLambda:
         delta = self.compute_delta(state_t, state_t_next, action_t, action_t_next, reward_t)
 
         # v <- mv + alpha * delta * e
-        # w <- w + valpha * delta * eligibility
-        # todo : use here self.base.scale_learning_rate to scale
-        scaled_learning_rate: np.ndarray = self.basis.scale_learning_rate(learning_rate_t).reshape(1,self.hidden_size)  # (h_s,)
+        # w <- w + v * momentum  + alpha * delta * eligibility
+        scaled_learning_rate: np.ndarray = self.basis.scale_learning_rate(learning_rate_t)  # (h_s,)
 
+        for index, lr in enumerate(scaled_learning_rate):
+            self.velocity[:, index] = self.velocity[:, index] * self.momentum + \
+                                      lr * delta * self.eligibility_trace[:, index]
+            self.weights[:, index] = self.weights[:, index] + self.velocity[:, index] * self.momentum
+            self.weights[:, index] = self.weights[:, index] + lr * delta * self.eligibility_trace[:, index]
+
+        # todo : understand why matrix implementation does not work
         # repeat
-        scaled_learning_rate = np.repeat(scaled_learning_rate,repeats=self.number_actions,axis=0) #(num_action,hidden_size)
-
-        self.velocity = self.velocity * self.momentum + scaled_learning_rate * delta * self.eligibility_trace  # ()
-        self.weights = self.weights + self.velocity
+        # scaled_learning_rate = np.repeat(scaled_learning_rate.reshape(1,self.hidden_size),repeats=self.number_actions,axis=0) #(num_action,hidden_size)
+        #
+        # self.velocity = self.velocity * self.momentum + scaled_learning_rate * delta * self.eligibility_trace  # ()
+        # self.weights = self.weights + self.velocity * self.momentum + scaled_learning_rate * delta * self.eligibility_trace
 
     def update_eligibility_trace(self, action_t: int, state_t: np.ndarray):
         transformed_t = self.basis(state_t)
         # Create boolean matrix
-        actions = np.zeros((self.number_actions,self.hidden_size))
-        actions[action_t,:] = 1
+        actions = np.zeros((self.number_actions, self.hidden_size))
+        actions[action_t, :] = 1
 
         # Update eligibility trace
         self.eligibility_trace = self.discount_factor_gamma * self.lambda_sarsa * self.eligibility_trace \
@@ -217,6 +233,8 @@ class SarsaLambda:
 
         # clip it
         self.eligibility_trace = np.clip(self.eligibility_trace, -5, 5)
+
+        return self.eligibility_trace
 
     def compute_delta(self,
                       state_t: np.ndarray,
@@ -230,6 +248,13 @@ class SarsaLambda:
         q_t = self.linear_aprox(state_t, action_t)
         return reward_t + self.discount_factor_gamma * q_t_next - q_t
 
+    def save(self,file_prefix : str = "", extra_data : Any = None):
+        with open(os.path.join(".",file_prefix+"_weights.pkl") + "","wb") as f:
+            content = {"W" : self.weights , "N" :self.basis.eta , "info" : extra_data}
+            pickle.dump(content,f)
+
+    def __str__(self):
+        return "Sarsa m:{:4.2f} $\lambda$: {:4.2f} $\gamma$: {:4f}".format(self.momentum,self.lambda_sarsa,self.discount_factor_gamma)
 
 def test_basis():
     state = np.ones(2)  # state = [1,1]
