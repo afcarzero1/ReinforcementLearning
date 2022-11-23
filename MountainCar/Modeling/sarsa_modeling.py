@@ -145,42 +145,85 @@ class LinearAprox:
 
 
 class SarsaLambda:
+    r"""
+     An agent that learns using Sarsa Lambda. Stochastic Gradient Descent with Nesterov Acceleration is used for training.
+    """
     def __init__(self,
-                 state_dimension,
-                 number_actions,
+                 state_dimension : int,
+                 number_actions : int,
                  eta: np.ndarray,
                  discount_factor_gamma: float = 0.99,
                  lambda_sarsa: float = 0.9,
                  momentum: float = 0,
+                 exploration_strategy : str = "eps"
                  ):
+        r"""
+        Initialize the SarsaLambda agent along with its training parameters
+
+        Args:
+             state_dimension (int): The dimensionality of the state space
+             number_actions (int): The number of actions available on the environment (discrete)
+             eta (np.ndarray): The basis to be used in the Fourier Approximation
+             discount_factor_gamma (float): The discount factor used in the SARSA update
+             lambda_sarsa (float): The lambda used in the SARSA update
+             momentum(float): The momentum of the Stochastic Gradient Descent
+        """
+
+        # Set the parameters
         self.number_actions: int = number_actions
         self.hidden_size: int = eta.shape[0]
         self.discount_factor_gamma: float = discount_factor_gamma
         self.lambda_sarsa: float = lambda_sarsa
         self.momentum = momentum
+        self.exploration_strategy = exploration_strategy
+
+        # Initialize the weights and the velocity
         self.weights: np.ndarray = np.random.random((number_actions, self.hidden_size))  # n_a x h_s
         self.velocity: np.ndarray = np.zeros((number_actions, self.hidden_size))
 
+        # Create the basis
         self.basis = FourierBasis(input_size=state_dimension, output_size=self.hidden_size, eta=eta)
         self.linear_aprox = LinearAprox(self.basis, self.weights)
 
-        # Initialize eligebility trace
+        # Initialize eligibility trace
         self.eligibility_trace = np.zeros((number_actions, self.hidden_size))  # n_a x h_s
 
-    def reset(self):
+    def reset(self) -> None:
+        r"""
+        Reset the eligibility trace and the velocity.
+        """
         self.eligibility_trace = np.zeros((self.number_actions, self.hidden_size))
-        self.velocity = np.zeros(
-            (self.number_actions, self.hidden_size))  # todo : verufy this is correct initialization
+        self.velocity = np.zeros((self.number_actions, self.hidden_size))
 
     def epsilon_greedy(self, state, epsilon=0.1):
         """
-        Choose an action using a greedy policy.
-        :param state:
-        :param epsilon:
-        :return:
+        Choose an action using a greedy policy wioth parameter epsilon.
+
+        Args:
+             state (np.ndarray): Vector representing the state
+             epsilon (float): Epsilon. Must be a number between 0 and 1.
+        Returns:
+            best_action (int) : The best action to take with the epsilon greedy policy
+
         """
 
         if np.random.binomial(size=1, n=1, p=epsilon) == 1:
+            if self.exploration_strategy == "opposite":
+                best_q = float("-inf")
+                best_action = 0
+                for action in range(self.number_actions):
+                    q = self.linear_aprox(state, action)
+                    if q < best_q:
+                        best_q = q
+                        best_action = action
+
+                return best_action
+
+            if self.exploration_strategy == "state":
+                if state[0] < 0.5:
+                    return 0
+                else:
+                    return 2
             # Take random action
             return np.random.randint(0, self.number_actions)
         else:
@@ -202,13 +245,28 @@ class SarsaLambda:
                 state_t_next: np.ndarray,
                 action_t_next: int,
                 learning_rate_t: float,
-                ):
+                ) -> None:
+        """
+        Updates the internal representation of the Q function using Stochastic Gradient Descent with Nesterov Acceleration.
+
+        Internally it updates the eligibility trace , scales the learning rate for each basis and updates weights and velocity
+        matrices.
+
+        Args:
+            state_t (np.ndarray): Vector representing the state
+            action_t (int): Action taken in that state with current policy
+            reward_t (float): Reward obtained by taking that action
+            state_t_next (np.ndarray): Vector representing the next state
+            action_t_next (float): Action to be taken in the enxt state with current policy.
+            learning_rate_t (float): The learning rate to apply
+        """
         ## UPDATE ELGIBILITY TRACE
-        self.update_eligibility_trace(action_t, state_t)
+        self._update_eligibility_trace(action_t, state_t)
 
         ## UPDATE WEIGHTS
         delta = self.compute_delta(state_t, state_t_next, action_t, action_t_next, reward_t)
 
+        ## APPLY SGD
         # v <- mv + alpha * delta * e
         # w <- w + v * momentum  + alpha * delta * eligibility
         scaled_learning_rate: np.ndarray = self.basis.scale_learning_rate(learning_rate_t)  # (h_s,)
@@ -226,7 +284,16 @@ class SarsaLambda:
         # self.velocity = self.velocity * self.momentum + scaled_learning_rate * delta * self.eligibility_trace  # ()
         # self.weights = self.weights + self.velocity * self.momentum + scaled_learning_rate * delta * self.eligibility_trace
 
-    def update_eligibility_trace(self, action_t: int, state_t: np.ndarray):
+    def _update_eligibility_trace(self, action_t: int, state_t: np.ndarray) -> np.ndarray:
+        """
+        Update the eligibility trace
+
+        Args:
+            action_t (int): Action taken
+            state_t (np.ndarray): Vector representing state
+        Return:
+            eligibility_trace (np.ndarray) : Updated eligibility trace
+        """
         transformed_t = self.basis(state_t)
         # Create boolean matrix
         actions = np.zeros((self.number_actions, self.hidden_size))
@@ -236,7 +303,7 @@ class SarsaLambda:
         self.eligibility_trace = self.discount_factor_gamma * self.lambda_sarsa * self.eligibility_trace \
                                  + transformed_t * actions
 
-        # clip it
+        # clip it for avoiding gradient exploit
         self.eligibility_trace = np.clip(self.eligibility_trace, -5, 5)
 
         return self.eligibility_trace
@@ -247,6 +314,19 @@ class SarsaLambda:
                       action_t: int,
                       action_t_next: int,
                       reward_t: float) -> float:
+        """
+        Compute the delta
+
+        Args:
+            state_t (np.ndarray): Vector representing state_t
+            state_t_next(np.ndarray): Vector representing state_t_next
+            action_t(int): Action taken in state_t
+            action_t_next(int): Action to be taken in state_t_next with current policy
+            reward_t(float): Reward obtained after taking action_t in state_t
+        Return:
+            delta (float) : The delta obtained
+
+        """
         # delta_t = r_t + gamma * Q(s_{t+1},a_{t+1}) - Q(s_t,a_t)
 
         q_t_next = self.linear_aprox(state_t_next, action_t_next)
@@ -254,7 +334,10 @@ class SarsaLambda:
         return reward_t + self.discount_factor_gamma * q_t_next - q_t
 
 
-    def plot_value_function(self):
+    def plot_value_function(self, file_name : str = "") -> None:
+        """
+        Generate 3D graph of the value function of the model.
+        """
         NUMBER_POINTS = 100
         s1 = np.linspace(0, 1, NUMBER_POINTS)
         s2 = np.linspace(0, 1, NUMBER_POINTS)
@@ -285,10 +368,13 @@ class SarsaLambda:
         fig.colorbar(surf, shrink=0.5, aspect=5)
         fig.suptitle('Value Function', fontsize=20)
 
-        plt.show()
+        if file_name == "":
+            plt.show()
+        else:
+            plt.savefig(file_name)
 
 
-    def plot_best_action(self):
+    def plot_best_action(self, file_name = ""):
         NUMBER_POINTS = 100
         s1 = np.linspace(0, 1, NUMBER_POINTS)
         s2 = np.linspace(0, 1, NUMBER_POINTS)
@@ -318,7 +404,11 @@ class SarsaLambda:
 
         fig.suptitle('Action', fontsize=20)
         fig.colorbar(surf, shrink=0.5, aspect=5)
-        plt.show()
+
+        if file_name == "":
+            plt.show()
+        else:
+            plt.savefig(file_name)
 
 
     def save(self,file_prefix : str = "", extra_data : Any = None):
@@ -602,7 +692,7 @@ class AgentTrainer:
                                                                                                running_avg,
                                                                                                self.learning_rate))
 
-    def plot_rewards(self):
+    def plot_rewards(self,file_name : str = ""):
         plt.plot([i for i in range(1, self.number_episodes + 1)], self.episode_reward_list, label='Episode reward')
         plt.plot([i for i in range(1, self.number_episodes + 1)], self.running_average(self.episode_reward_list, 10),
                  label='Average episode reward')
@@ -614,7 +704,10 @@ class AgentTrainer:
         plt.legend()
         plt.grid(alpha=0.3)
 
-        plt.show()
+        if file_name == "":
+            plt.show()
+        else:
+            plt.savefig(file_name)
 
     def running_average(self, x, N):
         ''' Function used to compute the running mean

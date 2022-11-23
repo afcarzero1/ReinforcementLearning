@@ -57,7 +57,7 @@ class GridSearcher:
         self.agent_trainer_class = agent_trainer_class
         self.number_episodes = number_episodes
 
-        self.results = {}
+        self.results = []
 
     def grid_search(self, agent_parameters: dict , trainer_parameters : dict = {}):
         ### SET GENERAL PARAMETERS
@@ -84,7 +84,9 @@ class GridSearcher:
                 passed, avg_rew, conf = trainer.test()
                 avg_rew_lim = avg_rew - conf
 
-                self.results[str(hyperparameters) +"_"+str(trainer_hyp)] = (passed,avg_rew,conf)
+
+
+                self.results.append((hyperparameters,trainer_hyp,passed,avg_rew,conf))
 
                 ### IF PASSED THE TEST SAVE THE MODEL ###
                 if passed:
@@ -151,6 +153,8 @@ def main():
 
     # Save it
     trainer.agent.save(file_prefix="best",extra_data=best_hyperparameters)
+
+
     trainer.play_game()
 
     # d.2 , d.3
