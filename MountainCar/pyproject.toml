@@ -1,0 +1,19 @@
+[build-system]
+requires = ["flit_core>=3.2"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "el2805"
+version = "0.0.1"
+authors = [
+  { name="Andres Cardenas", email="afcarzero1@gmail.com" },
+]
+description = "Reinforcement Learning course (EL2805) at KTH"
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]

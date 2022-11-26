@@ -1,3 +1,8 @@
+"""
+Model for an agent learning with a SARSA algorithm with linear approximation as function approximator. It uses a Fourier
+basis
+"""
+from datetime import datetime
 import os
 from abc import ABC, abstractmethod
 from typing import Union, Any, List
@@ -8,17 +13,20 @@ import matplotlib.pyplot as plt
 import pickle
 
 from matplotlib import cm
+from sklearn.model_selection import ParameterGrid
+from termcolor import colored
 from tqdm import tqdm, trange
 
 
 class Basis(ABC):
-    """
+    r"""
     Generic basis to be applied on vectors.
     """
 
     def __init__(self, input_size: int, output_size: int):
-        """
+        r"""
         Initialize the basis
+
         Args:
             input_size(int): Dimension of the starting space
             output_size(int): Dimension of the ending space
@@ -28,15 +36,16 @@ class Basis(ABC):
 
     @abstractmethod
     def to_basis(self, vector: np.ndarray):
-        """
+        r"""
         Transform the vector to the given basis
+
         Args:
             vector (np.ndarray) : vector to transform
         """
         pass
 
     @abstractmethod
-    def __call__(self, *args, **kwargs):
+    def __call__(self, vector: np.ndarray):
         pass
 
     def input_size(self):
@@ -49,8 +58,9 @@ class Basis(ABC):
 class FourierBasis(Basis):
     def __init__(self, input_size: int, output_size: int, eta: Union[np.ndarray, str] = None,
                  p: int = 2):
-        """
+        r"""
         A fourier basis implementation.
+
         Args:
             input_size (int) : dimensionality of the input
             output_size (int) : dimensionality of the output
@@ -77,26 +87,38 @@ class FourierBasis(Basis):
 
         assert (self.eta.shape[0] == self._output_size and self.eta.shape[1] == self._input_size)
 
-    def __call__(self, state: np.ndarray):
-        return self.to_basis(state)
-
     def to_basis(self, vector: np.ndarray) -> np.ndarray:
-        """
-        Transform the vector to the Fourirer Basis
+        r"""
+        Transform the vector to the Fourier Basis
+
         Args:
             vector (np.ndarray) : Vector with size (input_size,)
         Returns:
              phi (np.ndarray) : Transformed vector of size (output_size,)
         """
         assert (vector.shape[0] == self._input_size)
-
-        return np.cos(np.pi * np.dot(self.eta, vector))
+        result = np.cos(np.pi * np.dot(self.eta, vector))
+        return result
 
     def save_eta(self, file_name="./eta_fourier_weights.pkl"):
         with open(file_name, "wb") as f:
             pickle.dump(self.eta, f)
 
+    def __call__(self, vector: np.ndarray):
+        result = self.to_basis(vector)
+        return result
+
     def scale_learning_rate(self, alpha: float):
+        r"""
+        Compute learning rate scaled with the norm of elements in the basis
+
+        Args:
+            alpha (float) : The learning rate to scale
+
+        Return:
+             scaled_lr (np.ndarray) : Vector with learning rate scaled learning rate.
+        """
+
         norm = np.sqrt(np.square(self.eta).sum(axis=1))  # (basis_dimension x 1) or (output_dimension x 1)
         norm[norm == 0] = 1  # When the norm is zero do not scale
         return alpha / norm
@@ -148,14 +170,15 @@ class SarsaLambda:
     r"""
      An agent that learns using Sarsa Lambda. Stochastic Gradient Descent with Nesterov Acceleration is used for training.
     """
+
     def __init__(self,
-                 state_dimension : int,
-                 number_actions : int,
+                 state_dimension: int,
+                 number_actions: int,
                  eta: np.ndarray,
                  discount_factor_gamma: float = 0.99,
                  lambda_sarsa: float = 0.9,
                  momentum: float = 0,
-                 exploration_strategy : str = "eps"
+                 exploration_strategy: str = "eps"
                  ):
         r"""
         Initialize the SarsaLambda agent along with its training parameters
@@ -174,8 +197,8 @@ class SarsaLambda:
         self.hidden_size: int = eta.shape[0]
         self.discount_factor_gamma: float = discount_factor_gamma
         self.lambda_sarsa: float = lambda_sarsa
-        self.momentum = momentum
-        self.exploration_strategy = exploration_strategy
+        self.momentum: float = momentum
+        self.exploration_strategy: str = exploration_strategy
 
         # Initialize the weights and the velocity
         self.weights: np.ndarray = np.random.random((number_actions, self.hidden_size))  # n_a x h_s
@@ -186,30 +209,35 @@ class SarsaLambda:
         self.linear_aprox = LinearAprox(self.basis, self.weights)
 
         # Initialize eligibility trace
-        self.eligibility_trace = np.zeros((number_actions, self.hidden_size))  # n_a x h_s
+        self.eligibility_trace: np.ndarray = np.zeros((number_actions, self.hidden_size))  # n_a x h_s
 
     def reset(self) -> None:
         r"""
         Reset the eligibility trace and the velocity.
         """
+
         self.eligibility_trace = np.zeros((self.number_actions, self.hidden_size))
         self.velocity = np.zeros((self.number_actions, self.hidden_size))
 
-    def epsilon_greedy(self, state, epsilon=0.1):
+    def explore_greedy(self, state, epsilon=0.1):
         """
-        Choose an action using a greedy policy wioth parameter epsilon.
+        Choose an action using a greedy policy with parameter epsilon.
 
         Args:
              state (np.ndarray): Vector representing the state
              epsilon (float): Epsilon. Must be a number between 0 and 1.
+
         Returns:
             best_action (int) : The best action to take with the epsilon greedy policy
 
         """
 
+        # Bernoulli variable with parameter epsilon
         if np.random.binomial(size=1, n=1, p=epsilon) == 1:
+
+            # Act according to the exploration policy
             if self.exploration_strategy == "opposite":
-                best_q = float("-inf")
+                best_q = float("inf")
                 best_action = 0
                 for action in range(self.number_actions):
                     q = self.linear_aprox(state, action)
@@ -218,12 +246,14 @@ class SarsaLambda:
                         best_action = action
 
                 return best_action
-
-            if self.exploration_strategy == "state":
+            elif self.exploration_strategy == "state":
                 if state[0] < 0.5:
                     return 0
                 else:
                     return 2
+            elif self.exploration_strategy == "still":
+                return 1
+
             # Take random action
             return np.random.randint(0, self.number_actions)
         else:
@@ -291,6 +321,7 @@ class SarsaLambda:
         Args:
             action_t (int): Action taken
             state_t (np.ndarray): Vector representing state
+
         Return:
             eligibility_trace (np.ndarray) : Updated eligibility trace
         """
@@ -314,7 +345,7 @@ class SarsaLambda:
                       action_t: int,
                       action_t_next: int,
                       reward_t: float) -> float:
-        """
+        r"""
         Compute the delta
 
         Args:
@@ -333,24 +364,25 @@ class SarsaLambda:
         q_t = self.linear_aprox(state_t, action_t)
         return reward_t + self.discount_factor_gamma * q_t_next - q_t
 
-
-    def plot_value_function(self, file_name : str = "") -> None:
-        """
+    def plot_value_function(self, file_name: str = "") -> None:
+        r"""
         Generate 3D graph of the value function of the model.
+
+        Args:
+            file_name (str) : If specified the plot is saved in a file with this path.
         """
         NUMBER_POINTS = 100
         s1 = np.linspace(0, 1, NUMBER_POINTS)
         s2 = np.linspace(0, 1, NUMBER_POINTS)
 
-        # COmpute value function
+        # Compute value function in the domain
         value = np.ones((NUMBER_POINTS, NUMBER_POINTS)) * -200
 
         for i in range(NUMBER_POINTS):
             for j in range(NUMBER_POINTS):
-
                 state = np.array([s1[i], s2[j]])
                 phi = self.basis(state)
-                q_a = np.dot(self.weights,phi)
+                q_a = np.dot(self.weights, phi)
 
                 q_max = np.max(q_a)
 
@@ -373,8 +405,7 @@ class SarsaLambda:
         else:
             plt.savefig(file_name)
 
-
-    def plot_best_action(self, file_name = ""):
+    def plot_best_action(self, file_name=""):
         NUMBER_POINTS = 100
         s1 = np.linspace(0, 1, NUMBER_POINTS)
         s2 = np.linspace(0, 1, NUMBER_POINTS)
@@ -384,10 +415,9 @@ class SarsaLambda:
 
         for i in range(NUMBER_POINTS):
             for j in range(NUMBER_POINTS):
-
                 state = np.array([s1[i], s2[j]])
                 phi = self.basis(state)
-                q_a = np.dot(self.weights,phi)
+                q_a = np.dot(self.weights, phi)
 
                 action = np.argmax(q_a)
 
@@ -407,23 +437,24 @@ class SarsaLambda:
 
         if file_name == "":
             plt.show()
+            plt.close()
         else:
             plt.savefig(file_name)
+            plt.close()
 
+    def save(self, folder=".", file_prefix: str = "", extra_data: Any = None):
+        with open(os.path.join(folder, file_prefix + "weights.pkl") + "", "wb") as f:
+            content = {"W": self.weights, "N": self.basis.eta, "info": extra_data}
+            pickle.dump(content, f)
 
-    def save(self,file_prefix : str = "", extra_data : Any = None):
-        with open(os.path.join(".",file_prefix+"_weights.pkl") + "","wb") as f:
-            content = {"W" : self.weights , "N" :self.basis.eta , "info" : extra_data}
-            pickle.dump(content,f)
+        with open(os.path.join(folder, file_prefix + "agent.pkl") + "", "wb") as f:
+            pickle.dump(self, f)
 
-        with open(os.path.join(".",file_prefix+"_agent.pkl") + "","wb") as f:
-            pickle.dump(self,f)
-
-    def load(self,file_name):
-        with open(file_name,"rb") as f:
-            data :dict = pickle.load(f)
-            weights : np.ndarray = data["W"]
-            eta : np.ndarray= data["N"]
+    def load(self, file_name):
+        with open(file_name, "rb") as f:
+            data: dict = pickle.load(f)
+            weights: np.ndarray = data["W"]
+            eta: np.ndarray = data["N"]
 
             self.__init__(state_dimension=eta.shape[1],
                           number_actions=weights.shape[0],
@@ -431,10 +462,9 @@ class SarsaLambda:
                           )
             self.weights = weights
 
-
-
     def __str__(self):
-        return "Sarsa m:{:4.2f} $\lambda$: {:4.2f} $\gamma$: {:4f}".format(self.momentum,self.lambda_sarsa,self.discount_factor_gamma)
+        return "Sarsa m:{:4.2f} $\lambda$: {:4.2f} $\gamma$: {:4f}".format(self.momentum, self.lambda_sarsa,
+                                                                           self.discount_factor_gamma)
 
 
 class AgentTrainer:
@@ -447,7 +477,7 @@ class AgentTrainer:
                  episode_reward_trigger: float = -150,
                  learning_rate_scaling: List[float] = None,
                  early_stopping=True,
-                 information_episodes : int= 50):
+                 information_episodes: int = 50):
 
         ## SET PARAMETERS
         self.early_stopping = early_stopping
@@ -477,14 +507,10 @@ class AgentTrainer:
         else:
             raise NotImplementedError(f"{self.epsilon_decay} mode not implemented")
 
-    def train(self, verbose = False):
-        np.random.seed(10)
+    def train(self, verbose=False):
+        #np.random.seed(10)
         ### RESET ENVIRONMENT ###
         self.env.reset()
-
-        ### DEFINE PARAMETERS ###
-        NUMBER_EPISODES = self.number_episodes
-        LEARNING_RATE_INITIAL = self.learning_rate_initial
 
         ### DEFINE FUNCTION USEFUL FOR SCALING ###
         def scale_state_variables(s, low=self.env.observation_space.low, high=self.env.observation_space.high):
@@ -493,10 +519,10 @@ class AgentTrainer:
             return x
 
         epsilon = self._define_epsilon()
-        self.learning_rate = LEARNING_RATE_INITIAL
+        self.learning_rate = self.learning_rate_initial
         time = 0
 
-        for e in trange(NUMBER_EPISODES):
+        for e in trange(self.number_episodes):
             done = False
             terminated = False
             state = scale_state_variables(self.env.reset()[0])
@@ -504,7 +530,7 @@ class AgentTrainer:
 
             while not (done or terminated):
                 ### TAKE ACTION ###
-                action = self.agent.epsilon_greedy(state, epsilon=epsilon[e])
+                action = self.agent.explore_greedy(state, epsilon=epsilon[e])
 
                 ### USE ACTION ###
                 next_state, reward, done, terminated, *_ = self.env.step(action)
@@ -513,7 +539,7 @@ class AgentTrainer:
 
                 ### COMPUTE NEXT ACTION
 
-                next_action = self.agent.epsilon_greedy(next_state, epsilon=epsilon[e])
+                next_action = self.agent.explore_greedy(next_state, epsilon=epsilon[e])
 
                 ### USE SARSA
                 self.agent.forward(state_t=state,
@@ -567,7 +593,7 @@ class AgentTrainer:
             if e % self.information_episodes == 0:
                 self.print_episode_information(e)
 
-            if self.moving_average(30) > self.episode_reward_trigger and self.early_stopping:
+            if self._moving_average(30) > self.episode_reward_trigger and self.early_stopping:
                 self.env.close()
                 break
 
@@ -577,7 +603,7 @@ class AgentTrainer:
         if verbose:
             self.plot_rewards()
 
-    def test(self, N=50, verbose = False):
+    def test(self, N=50, verbose=False):
         ### DEFINE FUNCTION USEFUL FOR SCALING ###
         def scale_state_variables(s, low=self.env.observation_space.low, high=self.env.observation_space.high):
             ''' Rescaling of s to the box [0,1]^2 '''
@@ -597,7 +623,7 @@ class AgentTrainer:
             state = scale_state_variables(self.env.reset()[0])
             total_episode_reward = 0.
 
-            action = self.agent.epsilon_greedy(state, epsilon=0)
+            action = self.agent.explore_greedy(state, epsilon=0)
 
             while not (done or truncated):
                 # Get next state and reward.  The done variable
@@ -605,7 +631,7 @@ class AgentTrainer:
                 # False otherwise
                 next_state, reward, done, truncated, *_ = self.env.step(action)
                 next_state = scale_state_variables(next_state)
-                next_action = self.agent.epsilon_greedy(state, epsilon=0)
+                next_action = self.agent.explore_greedy(state, epsilon=0)
 
                 # Update episode reward
                 total_episode_reward += reward
@@ -631,13 +657,13 @@ class AgentTrainer:
         if avg_reward - confidence >= CONFIDENCE_PASS:
             if verbose:
                 print('Your policy passed the test!')
-            return True, avg_reward , confidence
+            return True, avg_reward, confidence
         else:
             if verbose:
                 print(
                     'Your policy did not pass the test! The average reward of your policy needs to be greater than {} with 95% confidence'.format(
                         CONFIDENCE_PASS))
-            return False, avg_reward , confidence
+            return False, avg_reward, confidence
 
     def play_game(self):
 
@@ -651,7 +677,7 @@ class AgentTrainer:
         total_episode_reward = 0
 
         state = scale_state_variables(self.env.reset()[0])
-        action = self.agent.epsilon_greedy(state, epsilon=0)
+        action = self.agent.explore_greedy(state, epsilon=0)
 
         while not (done or truncated):
             # Get next state and reward.  The done variable
@@ -659,7 +685,7 @@ class AgentTrainer:
             # False otherwise
             next_state, reward, done, truncated, *_ = self.env.step(action)
             next_state = scale_state_variables(next_state)
-            next_action = self.agent.epsilon_greedy(state, epsilon=0)
+            next_action = self.agent.explore_greedy(state, epsilon=0)
 
             # Update episode reward
             total_episode_reward += reward
@@ -670,13 +696,10 @@ class AgentTrainer:
 
             self.env.render()
 
+    def get_training_rewards(self):
+        return self.episode_reward_list
 
-
-
-
-
-
-    def moving_average(self, N=30):
+    def _moving_average(self, N=30):
         ep = self.episode_reward_list
         if len(self.episode_reward_list) < N:
             ep = np.zeros_like(self.episode_reward_list)
@@ -685,14 +708,14 @@ class AgentTrainer:
         return np.average(running_avg)
 
     def print_episode_information(self, e: int):
-        running_avg = self.moving_average()
+        running_avg = self._moving_average()
         tqdm.write(" Episode {:5} / {:5} , Reward {:5f} , AvgReward {:5f} , lr : {:5f}".format(e, self.number_episodes,
                                                                                                self.episode_reward_list[
                                                                                                    e],
                                                                                                running_avg,
                                                                                                self.learning_rate))
 
-    def plot_rewards(self,file_name : str = ""):
+    def plot_rewards(self, file_name: str = ""):
         plt.plot([i for i in range(1, self.number_episodes + 1)], self.episode_reward_list, label='Episode reward')
         plt.plot([i for i in range(1, self.number_episodes + 1)], self.running_average(self.episode_reward_list, 10),
                  label='Average episode reward')
@@ -706,8 +729,10 @@ class AgentTrainer:
 
         if file_name == "":
             plt.show()
+            plt.close()
         else:
             plt.savefig(file_name)
+            plt.close()
 
     def running_average(self, x, N):
         ''' Function used to compute the running mean
@@ -721,6 +746,121 @@ class AgentTrainer:
         return y
 
 
+
+class GridSearcher:
+    def __init__(self,
+                 env,
+                 agent_class,
+                 agent_trainer_class,
+                 number_episodes=500):
+        self.env = env
+        self.agent_class = agent_class
+        self.agent_trainer_class = agent_trainer_class
+        self.number_episodes = number_episodes
+
+        self.results = []
+
+    def grid_search(self, agent_parameters: dict, trainer_parameters: dict = {}):
+        ### SET GENERAL PARAMETERS
+        NUMBER_EPISODES = self.number_episodes
+        if not os.path.exists(os.path.join(".", "RESULTS")):
+            os.makedirs(os.path.join(".", "RESULTS"))
+
+        ### CREATE ENVIRONMENT ###
+        env = gym.make('MountainCar-v0')
+        env.reset()
+
+        max_reward = float("-inf")
+        best_hyperparameters = {}
+        stored_time = ""
+        i = 0
+
+        for hyperparameters in ParameterGrid(agent_parameters):
+            for trainer_hyp in ParameterGrid(trainer_parameters):
+                i += 1
+                print("{:5} / {:5} parameter".format(i, len(ParameterGrid(trainer_parameters)) * len(
+                    ParameterGrid(agent_parameters))))
+
+                trainer = self.train_step(hyperparameters, trainer_hyp, verbose=False)
+                passed, avg_rew, conf = trainer.test()
+                avg_rew_lim = avg_rew - conf
+
+                self.results.append((hyperparameters, trainer_hyp, passed, avg_rew, conf))
+
+                ### IF PASSED THE TEST SAVE THE MODEL ###
+                if passed:
+                    e = datetime.now()
+                    time = e.strftime("%Y-%m-%d%H-%M-%S")
+
+                    trainer.agent.save(file_prefix=os.path.join("RESULTS", time), extra_data=hyperparameters)
+                    if avg_rew_lim > max_reward:
+                        print(colored("[NEW BEST] The new best hyperparameter combination is:"))
+                        print(hyperparameters)
+                        max_reward = avg_rew_lim
+                        best_hyperparameters = hyperparameters
+                        stored_time = time
+
+        ### RETURN BEST FOUND POLICY
+        print(colored("The best policy, stored at time " + stored_time + " is:", 'red'))
+        print(best_hyperparameters)
+        return best_hyperparameters
+
+    def train_step(self, model_parameters: dict, trainer_parameters={}, verbose=False):
+        agent = self.agent_class(state_dimension=2,
+                                 number_actions=self.env.action_space.n,
+                                 **model_parameters)
+        ### CREATE TRAINER ###
+        trainer = self.agent_trainer_class(environment=self.env,
+                                           agent=agent,
+                                           number_episodes=self.number_episodes,
+                                           episode_reward_trigger=-135,
+                                           epsilon_initial=0.8,
+                                           early_stopping=False,
+                                           information_episodes=1000,
+                                           **trainer_parameters)
+
+        ### TRAIN AND TEST ###
+        trainer.train(verbose=verbose)
+
+        return trainer
+
+
+
+
+def define_eta(mode):
+    if mode == "keep":
+        eta = np.array([[1, 0],
+                        [0, 1]])
+    elif mode == "combinations":
+        eta = np.array([[0, 0],
+                        [0, 1],
+                        [1, 0],
+                        [1, 1],
+                        ])
+    elif mode == "increase_comb":
+        eta = np.array([[0, 1],
+                        [0, 2],
+                        [1, 0],
+                        [1, 1],
+                        [1, 2],
+                        [2, 0],
+                        [2, 1],
+                        [2, 2]
+                        ])
+    elif mode == "full":
+        eta = np.array([[0, 0],
+                        [0, 1],
+                        [0, 2],
+                        [1, 0],
+                        [1, 1],
+                        [1, 2],
+                        [2, 0],
+                        [2, 1],
+                        [2, 2],
+                        ])
+
+    # hidden x dim
+    return eta
 
 
 def test_basis():
