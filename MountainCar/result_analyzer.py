@@ -99,7 +99,7 @@ def test_different_exploration(file_weights , folder):
         plt.title("Comparison Different Exploration Strategies")
         plt.legend()
 
-        plt.savefig("comparison_strategies")
+        plt.savefig(os.path.join(folder,"comparison_strategies.png"))
         plt.show()
         plt.close()
 
@@ -124,7 +124,6 @@ def analyze_learning_rate(file_weights , folder):
     trainer_param = {"learning_rate_initial": [0.01, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
                                                0.011,0.012,0.013,0.014,0.015,
                                                0.0009,0.0008,0.0007,0.0006,0.0005,0.0004,0.0003,0.0002,0.0001]}
-    trainer_param = {"learning_rate_initial": [0.01, 0.001]}
     gridsearcher.grid_search(agent_parameters=parameters, trainer_parameters=trainer_param)
 
     ## ANALYZE THE RESULT
@@ -230,19 +229,10 @@ def compare_plots_rewards(parameter_name : str , parameter_values : [], file_wei
     parameters[parameter_name] = parameter_values[0]
     trainer = gridsearcher.train_step(model_parameters=parameters,verbose=True)
     trainer.test(verbose=True)
-    trainer.plot_rewards(os.path.join(folder,"eta1.png"))
+    trainer.plot_rewards(os.path.join(folder,parameter_name+"1.png"))
 
     parameters[parameter_name] = parameter_values[1]
     trainer = gridsearcher.train_step(model_parameters=parameters, verbose=True)
     trainer.test(verbose=True)
-    trainer.plot_rewards(os.path.join(folder,"eta2.png"))
+    trainer.plot_rewards(os.path.join(folder,parameter_name+"2.png"))
 
-
-if __name__ == '__main__':
-    pass
-    #analyze_learning_rate()
-    #analyze_eligibility_trace()
-    #analyze_parameter("lambda_sarsa", [0.1, 0.2, 0.5, 0.7, 0.9])
-    #analyze_parameter("momentum", [0.1, 0.2, 0.5, 0.7, 0.9])
-    #compare_plots_rewards("eta",[define_eta("increase_comb"),define_eta("full")])
-    # main()

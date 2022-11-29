@@ -146,6 +146,9 @@ class MapProblemMinotaurKeys(MDPTerminalState):
     def actions(self, state):
         return self.player_state_to_action[state]
 
+    def all_actions(self):
+        return self._actions
+
     def states(self):
         return self._states
 

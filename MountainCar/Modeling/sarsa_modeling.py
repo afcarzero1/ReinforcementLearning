@@ -178,7 +178,8 @@ class SarsaLambda:
                  discount_factor_gamma: float = 0.99,
                  lambda_sarsa: float = 0.9,
                  momentum: float = 0,
-                 exploration_strategy: str = "eps"
+                 exploration_strategy: str = "eps",
+                 initialization : str = "random"
                  ):
         r"""
         Initialize the SarsaLambda agent along with its training parameters
@@ -190,6 +191,8 @@ class SarsaLambda:
              discount_factor_gamma (float): The discount factor used in the SARSA update
              lambda_sarsa (float): The lambda used in the SARSA update
              momentum(float): The momentum of the Stochastic Gradient Descent
+             exploration_strategy (str) : The exploration strategy
+             initialization (str) : The inizialization of the weights
         """
 
         # Set the parameters
@@ -201,7 +204,12 @@ class SarsaLambda:
         self.exploration_strategy: str = exploration_strategy
 
         # Initialize the weights and the velocity
-        self.weights: np.ndarray = np.random.random((number_actions, self.hidden_size))  # n_a x h_s
+        if initialization == "He":
+            self.weights: np.ndarray = np.random.normal(0,1,number_actions * self.hidden_size).reshape((number_actions, self.hidden_size))
+        elif initialization == "Xa":
+            self.weights: np.ndarray = np.random.normal(number_actions * self.hidden_size).reshape((number_actions, self.hidden_size))
+        else:
+            self.weights: np.ndarray = np.random.random((number_actions, self.hidden_size))  # n_a x h_s
         self.velocity: np.ndarray = np.zeros((number_actions, self.hidden_size))
 
         # Create the basis
@@ -746,7 +754,6 @@ class AgentTrainer:
         return y
 
 
-
 class GridSearcher:
     def __init__(self,
                  env,
@@ -774,6 +781,9 @@ class GridSearcher:
         best_hyperparameters = {}
         stored_time = ""
         i = 0
+
+        # Clean the results
+        self.results = []
 
         for hyperparameters in ParameterGrid(agent_parameters):
             for trainer_hyp in ParameterGrid(trainer_parameters):
@@ -823,8 +833,6 @@ class GridSearcher:
         trainer.train(verbose=verbose)
 
         return trainer
-
-
 
 
 def define_eta(mode):

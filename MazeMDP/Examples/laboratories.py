@@ -114,7 +114,7 @@ def solve_minotaur_infinite_horizon_with_keys():
 
     # Solve the MDP
     print(colored("-" * 25 + "SOLVE THE MDP" + "-" * 25, 'red'))
-    level_rewards, level_actions = valueIterationSolver(mdp, epsilon=0.01, interactive=False)
+    level_rewards, level_actions = valueIterationSolver(mdp, epsilon=0.001, interactive=False)
 
     # Print the results
     mdp.print_values(level_rewards[1])
@@ -148,7 +148,7 @@ def solve_minotaur_infinite_horizon_with_keys():
 def main():
     t = time.time()
     # 1.c
-    solve_minotaur_finite_horizon_with_keys()
+    #solve_minotaur_finite_horizon_with_keys()
     print(colored("ELAPSED TIME : {:5f} seconds".format(time.time() - t),'red'))
     t = time.time()
     # 1.d

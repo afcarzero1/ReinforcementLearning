@@ -49,6 +49,9 @@ class MDP(ABC, Env):
         """
         pass
 
+    def all_actions(self):
+        raise NotImplementedError
+
     def discount(self) -> float:
         r"""
         Return the discount factor of the Markov Decision Process
@@ -148,7 +151,6 @@ def save_average_reward(mdp : MDP, path : str = "./average_rewards.txt"):
                 if tot_reward != 0:
                     f.write(str(state) + " " +str(action)+" "+ str(tot_reward) + '\n')
             tot_reward /= len(mdp.actions(state))
-
 
 
 def main():
