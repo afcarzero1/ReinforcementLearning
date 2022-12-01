@@ -16,15 +16,15 @@ class Agent(ABC):
         Agent that takes a decision given an action with an epsilon greedy policy.
 
         Args:
-            state: The state
-            epsilon (float): The epslion to use
+            state (Any): The state from which decision has to be taken.
+            epsilon (float): The epsilon to use for the decision
         Return:
             action (Any): The action to be taken
         """
         pass
 
     @abstractmethod
-    def backward(self):
+    def backward(self, *args, **kwargs):
         pass
 
 
@@ -32,7 +32,7 @@ class AgentEpisodicTrainer(ABC):
     def __init__(self, environment: gym.Env,
                  agent: Agent,
                  learning_rate_initial: float = 0.001,
-                 discount_factor : float = 1,
+                 discount_factor: float = 1,
                  epsilon_initial: float = 1,
                  epsilon_decay: str = "linear",
                  number_episodes: int = 500,
@@ -45,6 +45,7 @@ class AgentEpisodicTrainer(ABC):
                  batch_size: int = 30):
 
         ## SET PARAMETERS
+        self.step = 0
         self.early_stopping = early_stopping
         self.information_episodes = information_episodes
         self.episode_reward_trigger = episode_reward_trigger
@@ -107,6 +108,7 @@ class AgentEpisodicTrainer(ABC):
         self.learning_rate = self.learning_rate_initial
         self._initialize_replay_buffer()
 
+        self.step = 0
         for e in trange(self.number_episodes):
             done = False
             terminated = False
@@ -130,6 +132,8 @@ class AgentEpisodicTrainer(ABC):
                 ### UPDATE OF NETWORK ###
 
                 self.update_agent()
+
+                self.step += 1
 
             self.episode_reward_list.append(total_episode_reward)
 
