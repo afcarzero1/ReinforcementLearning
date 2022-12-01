@@ -1,9 +1,13 @@
+import os
 from abc import ABC, abstractmethod
 from collections import deque
+from datetime import datetime
 from typing import Any, List
 
 import gym
 import numpy as np
+from sklearn.model_selection import ParameterGrid
+from termcolor import colored
 from tqdm import trange, tqdm
 
 import matplotlib.pyplot as plt
@@ -27,6 +31,9 @@ class Agent(ABC):
     def backward(self, *args, **kwargs):
         pass
 
+    def save(self,path,extra_data) -> None:
+        pass
+
 
 class AgentEpisodicTrainer(ABC):
     def __init__(self, environment: gym.Env,
@@ -38,7 +45,7 @@ class AgentEpisodicTrainer(ABC):
                  number_episodes: int = 500,
                  episode_reward_trigger: float = -150,
                  learning_rate_scaling: List[float] = None,
-                 early_stopping=True,
+                 early_stopping=False,
                  information_episodes: int = 50,
                  buffer_size: int = 100,
                  buffer_size_min: int = 30,
@@ -117,7 +124,8 @@ class AgentEpisodicTrainer(ABC):
 
             while not (done or terminated):
                 ### TAKE ACTION ###
-                action = self.agent.forward(state=state, epsilon=epsilon[e])
+
+                action = self.action_agent_callback(state,epsilon[e])
 
                 ### USE ACTION ###
                 next_state, reward, done, terminated, *_ = self.env.step(action)
@@ -162,14 +170,14 @@ class AgentEpisodicTrainer(ABC):
             state = self.env.reset()[0]
             total_episode_reward = 0.
 
-            action = self.agent.forward(state, epsilon=0)
+            action = self.action_agent_callback(state, epsilon=0)
 
             while not (done or truncated):
                 # Get next state and reward.  The done variable
                 # will be True if you reached the goal position,
                 # False otherwise
                 next_state, reward, done, truncated, *_ = self.env.step(action)
-                next_action = self.agent.forward(state, epsilon=0)
+                next_action = self.action_agent_callback(state, epsilon=0)
 
                 total_episode_reward += reward
 
@@ -208,14 +216,14 @@ class AgentEpisodicTrainer(ABC):
         total_episode_reward = 0
 
         state = self.env.reset()[0]
-        action = self.agent.forward(state, epsilon=0)
+        action = self.action_agent_callback(state, epsilon=0)
 
         while not (done or truncated):
             # Get next state and reward.  The done variable
             # will be True if you reached the goal position,
             # False otherwise
             next_state, reward, done, truncated, *_ = self.env.step(action)
-            next_action = self.agent.forward(state, epsilon=0)
+            next_action = self.action_agent_callback(next_state,epsilon=0)
 
             # Update episode reward
             total_episode_reward += reward
@@ -278,3 +286,82 @@ class AgentEpisodicTrainer(ABC):
     @abstractmethod
     def update_agent(self):
         pass
+
+    def action_agent_callback(self,state :Any ,epsilon : float):
+        return self.agent.forward(state=state, epsilon=epsilon)
+
+class GridSearcher:
+    def __init__(self,
+                 env : gym.Env,
+                 agent_class,
+                 agent_trainer_class,
+                 number_episodes=500):
+        self.env = env
+        self.agent_class = agent_class
+        self.agent_trainer_class = agent_trainer_class
+        self.number_episodes = number_episodes
+
+        self.results = []
+
+    def grid_search(self, agent_parameters: dict, trainer_parameters: dict = {}):
+        ### SET GENERAL PARAMETERS
+        if not os.path.exists(os.path.join(".", "RESULTS")):
+            os.makedirs(os.path.join(".", "RESULTS"))
+
+        ### CREATE ENVIRONMENT ###
+        max_reward = float("-inf")
+        best_hyperparameters = {}
+        stored_time = ""
+        i = 0
+
+        # Clean the results
+        self.results = []
+
+        for hyperparameters in ParameterGrid(agent_parameters):
+            for trainer_hyp in ParameterGrid(trainer_parameters):
+                i += 1
+                print("{:5} / {:5} parameter".format(i, len(ParameterGrid(trainer_parameters)) * len(
+                    ParameterGrid(agent_parameters))))
+
+                trainer = self.train_step(hyperparameters, trainer_hyp, verbose=False)
+                passed, avg_rew, conf = trainer.test()
+                avg_rew_lim = avg_rew - conf
+
+                self.results.append((hyperparameters, trainer_hyp, passed, avg_rew, conf))
+
+                ### IF PASSED THE TEST SAVE THE MODEL ###
+                if passed:
+                    e = datetime.now()
+                    time = e.strftime("%Y-%m-%d%H-%M-%S")
+
+                    trainer.agent.save(file_prefix=os.path.join("RESULTS", time), extra_data=hyperparameters)
+                    if avg_rew_lim > max_reward:
+                        print(colored("[NEW BEST] The new best hyperparameter combination is:"))
+                        print(hyperparameters)
+                        max_reward = avg_rew_lim
+                        best_hyperparameters = hyperparameters
+                        stored_time = time
+
+        ### RETURN BEST FOUND POLICY
+        print(colored("The best policy, stored at time " + stored_time + " is:", 'red'))
+        print(best_hyperparameters)
+        return best_hyperparameters
+
+    def train_step(self, model_parameters: dict, trainer_parameters={}, verbose=False):
+        agent = self.agent_class(state_dimension=2,
+                                 number_actions=self.env.action_space.n,
+                                 **model_parameters)
+        ### CREATE TRAINER ###
+        trainer = self.agent_trainer_class(environment=self.env,
+                                           agent=agent,
+                                           number_episodes=self.number_episodes,
+                                           episode_reward_trigger=-135,
+                                           epsilon_initial=0.8,
+                                           early_stopping=False,
+                                           information_episodes=1000,
+                                           **trainer_parameters)
+
+        ### TRAIN AND TEST ###
+        trainer.train(verbose=verbose)
+
+        return trainer
