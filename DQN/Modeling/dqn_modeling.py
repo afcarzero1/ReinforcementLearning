@@ -51,7 +51,6 @@ class AgentDQN(Agent, nn.Module):
     def backward(self, transitions: List[Tuple], discount_factor: float = 1, device: torch.device = "cpu"):
         # Generate the targets
         self.online_network = self.online_network.to(device)  # TODO fix this
-        list_of_obs = [t[0] for t in transitions]
 
         # Transform to list and then tensor
         obses = np.array([np.array(t[0]) for t in transitions])  # (batch_size x state_dimension)
