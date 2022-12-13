@@ -33,14 +33,14 @@ class LunarCritic(Critic):
     def forward(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         x = self.l1(states)
         x = self.relu(x)
-        x = self.l2(torch.cat([x, actions], dim=0))
+        x = self.l2(torch.cat([x, actions], dim=1))
         x = self.relu(x)
         x = self.l3(x)
         return x
 
 
 def solve_problem():
-    env = gym.make('LunarLander-v2', continious=True)
+    env = gym.make('LunarLander-v2', continuous=True)
     env.reset()
 
     agent = AgentDDPG(critic_network=LunarCritic,
@@ -49,7 +49,7 @@ def solve_problem():
                                                                 "action_dimension": np.prod(env.action_space.shape)},
                       actor_network_initialization_parameters={"state_dimension": np.prod(env.observation_space.shape),
                                                                "action_dimension": np.prod(env.action_space.shape)}
-                      , noise_generator= LowPassFilteredNoise(np.prod(env.action_space.shape)[0])
+                      , noise_generator=LowPassFilteredNoise(np.prod(env.action_space.shape))
                       )
 
     trainer = AgentEpisodicDDPGTrainer(env,
@@ -75,3 +75,7 @@ def solve_problem():
     env = gym.make('LunarLander-v2', render_mode="human")
     trainer = AgentEpisodicDDPGTrainer(env, agent)
     trainer.play_game()
+
+
+if __name__ == '__main__':
+    solve_problem()

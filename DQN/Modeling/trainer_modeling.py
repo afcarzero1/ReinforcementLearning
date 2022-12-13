@@ -340,6 +340,8 @@ class GridSearcher:
         if not os.path.exists(os.path.join(".", self.folder,time0)):
             os.makedirs(os.path.join(".", self.folder,time0))
 
+        self.folder_results =  os.path.join(self.folder, time0)
+
         ### CREATE ENVIRONMENT ###
         max_reward = float("-inf")
         best_hyperparameters = {}

@@ -108,7 +108,7 @@ class AgentDDPG(Agent, nn.Module):
         # Actor receives as input a vector with dimension (state_dim)
         # Critic receives as input a vector with dimension (state_dim + action_dim)
 
-    def forward(self, state: torch.Tensor, epsilon: float = 0) -> torch.Tensor:
+    def forward(self, state: torch.Tensor, epsilon: float = 0, device: torch.device = "cpu") -> torch.Tensor:
         """
         Agent that takes a decision given an action with an epsilon greedy policy.
 
@@ -121,9 +121,19 @@ class AgentDDPG(Agent, nn.Module):
 
         # Here we have a continious action space.
         # We will ignore epsilon and just add a noise if it is different than 0
+        # Move all tensor to cpu and detach since we want to
+        if epsilon != 0:
+            to_return = self._act(state,device) + self.noise_generator.generate()
+            return to_return.numpy()
+        else:
+            return self._act(state,device).numpy()
 
-        action = self.online_actor(state)
-        return action + self.noise_generator.generate() if epsilon != 0 else action
+    def _act(self,state,device):
+        s_t: torch.Tensor = torch.as_tensor(state, dtype=torch.float32).to(device)
+        action = self.online_actor(s_t).cpu().detach()
+        return action
+
+
 
     def backward(self, transitions: List[Tuple], discount_factor: float = 1,
                  device: torch.device = "cpu") -> torch.Tensor:
@@ -172,7 +182,7 @@ class AgentDDPG(Agent, nn.Module):
         s_t, a_t, r_t, dones_t, s_t_next = self._transform_to_tensors(transitions, device)
 
         q_val = self.online_critic(s_t, self.online_actor(s_t))  # (batch_size ,1)
-        return torch.sum(q_val) / q_val.size[0]
+        return -torch.sum(q_val) / q_val.size()[0]
 
     def _transform_to_tensors(self, transitions: List[Tuple], device) -> \
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -195,24 +205,47 @@ class AgentDDPG(Agent, nn.Module):
         self.online_critic.to(device)
         self.online_actor.to(device)
         self.target_actor.to(device)
-        self.online_actor.to(device)
+        self.target_critic.to(device)
 
 
-# todo : delete this class as it is not necessary
-class AgentEpisodicDDPGTrainer(AgentEpisodicDQNTrainer):
+class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
 
     def __init__(self,
                  environment: gym.Env,
                  agent: AgentDDPG,
-                 learning_rate_actor = 5e-5,
+                 learning_rate_initial: float = 5e-4,
+                 learning_rate_actor:float = 5e-4,
+                 device: torch.device = None,
+                 target_update_frequency: int = 200,
+                 target_update_strategy: str = "step",
+                 clip_gradients: bool = False,
+                 clipping_value: float = 2,
+                 tau : float = 1e-3,
                  *args,
                  **kwargs):
-        super().__init__(environment,agent*args,**kwargs)
-        assert  type(self.agent) == AgentDDPG
+        super().__init__(environment=environment, agent=agent, *args, **kwargs)
+        assert issubclass(agent.__class__,AgentDDPG)
+        self.tau=tau
+
+        self.target_update_strategy = target_update_strategy
+        self.target_update_frequency = target_update_frequency
+
+        self.optimizer = torch.optim.Adam(self.agent.online_critic.parameters(), lr=learning_rate_initial)
         self.actor_optimizer = torch.optim.Adam(self.agent.online_actor.parameters(),lr=learning_rate_actor)
 
-    def update_agent(self):
+        if clip_gradients:
+            torch.nn.utils.clip_grad_norm_(self.agent.online_critic.parameters(),clipping_value)
+            torch.nn.utils.clip_grad_norm_(self.agent.online_actor.parameters(),clipping_value)
 
+        # Move the agent to the GPU
+        if device is not None:
+            self.device = device
+        else:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        self.agent.to(self.device)
+
+    def update_agent(self):
         # Sample from the buffer replay and compute loss
         transitions = random.sample(self.replay_buffer, self.batch_size)
         critic_loss = self.agent.backward(transitions, self.discount_factor, self.device)
@@ -229,11 +262,14 @@ class AgentEpisodicDDPGTrainer(AgentEpisodicDQNTrainer):
             actor_loss.backward()
             self.actor_optimizer.step()
 
-            self.agent.align_networks()
+            self.agent.align_networks(self.tau)
         elif self.episode % self.target_update_frequency:
             actor_loss = self.agent.actor_loss(transitions, self.device)
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
 
-            self.agent.align_networks()
+            self.agent.align_networks(self.tau)
+
+    def action_agent_callback(self, state: Any, epsilon: float):
+        return self.agent.forward(state, epsilon, self.device)
