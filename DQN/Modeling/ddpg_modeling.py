@@ -1,15 +1,14 @@
+import pickle
 import random
 from abc import abstractmethod, ABC
 from typing import Any, Type, List, Tuple
 
 import gym
 import numpy as np
-
-from .dqn_modeling import AgentEpisodicDQNTrainer, AgentDQN
-from .trainer_modeling import AgentEpisodicTrainer, Agent, GridSearcher
-
-from torch import nn
 import torch
+from torch import nn
+
+from .trainer_modeling import AgentEpisodicTrainer, Agent
 
 
 class Actor(ABC, nn.Module):
@@ -43,8 +42,11 @@ class Critic(ABC, nn.Module):
 
 
 class NoiseGenerator(ABC):
+    r"""
+    Base class for noise generators
+    """
     @abstractmethod
-    def generate(self):
+    def generate(self, *args, **kwargs):
         pass
 
     @abstractmethod
@@ -56,19 +58,34 @@ class LowPassFilteredNoise(NoiseGenerator):
     def __init__(self,
                  dimension: int,
                  mu: float = 0.15,
-                 sigma: float = 0.2):
+                 sigma: float = 0.2,
+                 decreasing_sigma: bool = False,
+                 episodes: int = 500,
+                 final_sigma: float = 0.1,
+                 reduced_sigma: float = 0.1):
         assert 1 > mu >= 0
         self.dimension = dimension
         self.mu = mu
         self.sigma = sigma
         self.previous_val = torch.zeros(self.dimension)
 
-    def generate(self) -> torch.Tensor:
+        self.final_sigma = final_sigma
+        self.reduced_sigma = reduced_sigma
+        self.step = (sigma - final_sigma) / episodes if decreasing_sigma else 0
+
+    def generate(self, reduce_sigma: bool = False) -> torch.Tensor:
         means = torch.zeros(self.dimension)
         std = torch.ones(self.dimension) * self.sigma
 
         to_return = - self.mu * self.previous_val + torch.normal(mean=means, std=std)
         self.previous_val = to_return
+
+        if reduce_sigma:
+            self.sigma = self.final_sigma
+
+        self.sigma = self.sigma - self.step
+        if self.sigma <= self.final_sigma:
+            self.step = 0
 
         return to_return
 
@@ -108,7 +125,8 @@ class AgentDDPG(Agent, nn.Module):
         # Actor receives as input a vector with dimension (state_dim)
         # Critic receives as input a vector with dimension (state_dim + action_dim)
 
-    def forward(self, state: torch.Tensor, epsilon: float = 0, device: torch.device = "cpu") -> torch.Tensor:
+    def forward(self, state: torch.Tensor, epsilon: float = 0, reduce_noise: bool = False,
+                device: torch.device = "cpu") -> torch.Tensor:
         """
         Agent that takes a decision given an action with an epsilon greedy policy.
 
@@ -123,17 +141,29 @@ class AgentDDPG(Agent, nn.Module):
         # We will ignore epsilon and just add a noise if it is different than 0
         # Move all tensor to cpu and detach since we want to
         if epsilon != 0:
-            to_return = self._act(state,device) + self.noise_generator.generate()
+            to_return = self._act(state, device) + self.noise_generator.generate(reduce_noise)
             return to_return.numpy()
         else:
-            return self._act(state,device).numpy()
+            return self._act(state, device).numpy()
 
-    def _act(self,state,device):
+    def _act(self, state, device):
         s_t: torch.Tensor = torch.as_tensor(state, dtype=torch.float32).to(device)
         action = self.online_actor(s_t).cpu().detach()
         return action
 
+    def save(self, path, extra_data):
+        r"""
+        Save the online networks as a .pth file.
 
+        Args:
+            path (str) : The path to use for saving the network
+            extra_data (Any) : Additional Data
+        """
+        torch.save(self.online_actor.state_dict(), path + "network_actor.pth")
+        torch.save(self.online_critic.state_dict(), path + "network_critic.pth")
+
+        with open(path + "extra.pkl", "wb") as f:
+            pickle.dump(extra_data, f)
 
     def backward(self, transitions: List[Tuple], discount_factor: float = 1,
                  device: torch.device = "cpu") -> torch.Tensor:
@@ -150,9 +180,6 @@ class AgentDDPG(Agent, nn.Module):
         loss = nn.functional.mse_loss(q_values, targets)
 
         return loss
-
-    def save(self, path, extra_data) -> None:
-        pass
 
     def align_networks(self, tau: float) -> None:
         self.target_critic = self.soft_updates(self.online_critic, self.target_critic, tau)
@@ -214,28 +241,35 @@ class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
                  environment: gym.Env,
                  agent: AgentDDPG,
                  learning_rate_initial: float = 5e-4,
-                 learning_rate_actor:float = 5e-4,
+                 learning_rate_actor: float = 5e-4,
                  device: torch.device = None,
                  target_update_frequency: int = 200,
                  target_update_strategy: str = "step",
                  clip_gradients: bool = False,
                  clipping_value: float = 2,
-                 tau : float = 1e-3,
+                 tau: float = 1e-3,
+                 reduce_noise: bool = False,
+                 reduce_noise_trigger: float = 150,
+                 reduce_noise_episodes_trigger: int = 30,
                  *args,
                  **kwargs):
-        super().__init__(environment=environment, agent=agent, *args, **kwargs)
-        assert issubclass(agent.__class__,AgentDDPG)
-        self.tau=tau
+        super().__init__(environment=environment, agent=agent, learning_rate_initial=learning_rate_initial, *args,
+                         **kwargs)
+        self.reduce_noise_episodes_trigger = reduce_noise_episodes_trigger
+        self.reduce_noise = reduce_noise
+        self.reduce_noise_trigger = reduce_noise_trigger
+        assert issubclass(agent.__class__, AgentDDPG)
+        self.tau = tau
 
         self.target_update_strategy = target_update_strategy
         self.target_update_frequency = target_update_frequency
 
         self.optimizer = torch.optim.Adam(self.agent.online_critic.parameters(), lr=learning_rate_initial)
-        self.actor_optimizer = torch.optim.Adam(self.agent.online_actor.parameters(),lr=learning_rate_actor)
+        self.actor_optimizer = torch.optim.Adam(self.agent.online_actor.parameters(), lr=learning_rate_actor)
 
         if clip_gradients:
-            torch.nn.utils.clip_grad_norm_(self.agent.online_critic.parameters(),clipping_value)
-            torch.nn.utils.clip_grad_norm_(self.agent.online_actor.parameters(),clipping_value)
+            torch.nn.utils.clip_grad_norm_(self.agent.online_critic.parameters(), clipping_value)
+            torch.nn.utils.clip_grad_norm_(self.agent.online_actor.parameters(), clipping_value)
 
         # Move the agent to the GPU
         if device is not None:
@@ -244,6 +278,7 @@ class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.agent.to(self.device)
+        self.reduce = False
 
     def update_agent(self):
         # Sample from the buffer replay and compute loss
@@ -257,7 +292,7 @@ class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
 
         # Update network every update steps or episodes
         if self.step % self.target_update_frequency and self.target_update_strategy == "step":
-            actor_loss = self.agent.actor_loss(transitions,self.device)
+            actor_loss = self.agent.actor_loss(transitions, self.device)
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
@@ -272,4 +307,11 @@ class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
             self.agent.align_networks(self.tau)
 
     def action_agent_callback(self, state: Any, epsilon: float):
-        return self.agent.forward(state, epsilon, self.device)
+        return self.agent.forward(state, epsilon, self.reduce, device=self.device)
+
+    def episode_finished_callback(self):
+        if self._moving_average(self.reduce_noise_episodes_trigger) > self.reduce_noise_trigger and self.reduce_noise:
+            self.reduce = True
+
+
+
