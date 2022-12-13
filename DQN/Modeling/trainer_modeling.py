@@ -36,6 +36,9 @@ class Agent(ABC):
 
 
 class AgentEpisodicTrainer(ABC):
+    r"""
+    Base trainer class using episode buffer.
+    """
     def __init__(self, environment: gym.Env,
                  agent: Agent,
                  learning_rate_initial: float = 0.001,
@@ -51,6 +54,27 @@ class AgentEpisodicTrainer(ABC):
                  buffer_size: int = 100,
                  buffer_size_min: int = 30,
                  batch_size: int = 30):
+        r"""
+        Initialize the trainer.
+
+        Args:
+            environment (gym.Env) : The environment to use for training.
+            agent (Agent) : The agent to be trained.
+            learning_rate_initial (float) : The initial learning rate to train the agent.
+            discount_factor (float) : The discount factor to be used for training.
+            epsilon_initial (float) : The initial epsilon to be used in the exploration
+            epsilon_decay (str) : The trype of epsilon decay. It migh be "linear" or "exponential"
+            number_episodes (int) : The number of episodes to be used in training
+            learning_rate_scaling (List[float]) : The learning rate scale to be used
+            early_stopping (bool) : Wether to stop the training when early_stopping_trigger average reward is reached.
+            early_stopping_trigger (float) : Threshold for stopping training
+            early_stopping_episodes_trigger (int) : Number of episodes on which the average reward is computed for the
+                early stopping
+            information_episodes (int) : Number of episodes after which information is printed
+            buffer_size (int) : The sieze of the buffer
+            buffer_size_min (int) : The minimum size of the buffer (filled with random experiences at the beginning)
+            batch_size (int) : The size of the batch on which the agent is updated.
+            """
 
         ## SET PARAMETERS
         self.step = 0
@@ -156,6 +180,8 @@ class AgentEpisodicTrainer(ABC):
             if self._moving_average(self.early_stopping_episodes_trigger) > self.episode_reward_trigger and self.early_stopping:
                 self.env.close()
                 break
+
+            self.episode_finished_callback()
 
         ### PLOT RESULTS ###
         if verbose:
@@ -294,10 +320,11 @@ class AgentEpisodicTrainer(ABC):
     def action_agent_callback(self,state :Any ,epsilon : float):
         return self.agent.forward(state=state, epsilon=epsilon)
 
-
+    def episode_finished_callback(self):
+        pass
 class BigHyperParameter:
     r"""
-    Wrapper cass for parameters that cannot be directly printed or saved.
+    Wrapper class for parameters that cannot be directly printed or saved.
     """
     def __init__(self,param : Any,name : str):
         self._param = param
@@ -313,27 +340,36 @@ class BigHyperParameter:
         return self._name
 
 class GridSearcher:
-    def __init__(self,
-                 env : gym.Env,
-                 agent_class,
-                 agent_trainer_class,
-                 number_episodes=500,
-                 save_all = False,
-                 folder="RESULTS"):
-        """
+    r"""
+    Class for performing a grid search among the parameters of an agent class and a trainer class.
+    """
+    def __init__(self, env: gym.Env, agent_class, agent_trainer_class, save_all=False, folder="RESULTS"):
+        r"""
         Initialize the grid searcher
+
+        Args:
+            env (gym.Env) : The environment to test
+            agent_class (Type) : The type of the agent class
+            agent_trainer_class (Type) : The type of the trainer class
+            save_all (bool) : Save all the results
+            folder (str) : The path to save the results
         """
         self.env = env
         self.agent_class = agent_class
         self.agent_trainer_class = agent_trainer_class
-        self.number_episodes = number_episodes
-
-
         self.folder = folder
         self.save_all = save_all
+
         self.results = []
 
     def grid_search(self, agent_parameters: dict, trainer_parameters: dict = {}):
+        r"""
+        Perform the grid search.
+
+        Args:
+            agent_parameters (dict) : Dictionary with the paramaters to test
+            trainer_parameters (dict) : Dictionary with the trainer parameters to test
+        """
         ### SET GENERAL PARAMETERS
         e = datetime.now()
         time0 : str = e.strftime("%Y-%m-%d%H-%M-%S")
@@ -368,6 +404,7 @@ class GridSearcher:
                                      avg_rew,
                                      conf)
                                     )
+                print(f"Average reward : {avg_rew} +- {conf}")
 
                 ### IF PASSED THE TEST SAVE THE MODEL AND HYPERPARAMETERS ###
                 e = datetime.now()
@@ -404,6 +441,17 @@ class GridSearcher:
         return best_hyperparameters
 
     def train_step(self, model_parameters: dict, trainer_parameters : dict={}, verbose=False):
+        r"""
+        Do one iteration of training of the agent
+
+        Args:
+            model_parameters (dict) : Dictionary with parameters of the agent.
+            trainer_parameters (dict) : Dictionary with the parameters of the trainer.
+            verbose (bool) : Display results in terminal.
+
+        Returns:
+            trainer (Any) : The trainer instance resulting after the training.
+        """
 
         agent = self.agent_class(**self._unwrap_dict(model_parameters))
         ### CREATE TRAINER ###
