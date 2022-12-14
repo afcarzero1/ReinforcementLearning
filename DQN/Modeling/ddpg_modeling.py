@@ -6,6 +6,7 @@ from typing import Any, Type, List, Tuple
 import gym
 import numpy as np
 import torch
+from matplotlib import pyplot as plt, cm
 from torch import nn
 
 from .trainer_modeling import AgentEpisodicTrainer, Agent
@@ -165,6 +166,13 @@ class AgentDDPG(Agent, nn.Module):
         with open(path + "extra.pkl", "wb") as f:
             pickle.dump(extra_data, f)
 
+    def load(self,path_actor,path_critic):
+        self.online_actor.load_state_dict(torch.load(path_actor))
+        self.target_actor.load_state_dict(torch.load(path_actor))
+
+        self.online_critic.load_state_dict(torch.load(path_critic))
+        self.online_critic.load_state_dict(torch.load(path_critic))
+
     def backward(self, transitions: List[Tuple], discount_factor: float = 1,
                  device: torch.device = "cpu") -> torch.Tensor:
         r"""
@@ -233,6 +241,90 @@ class AgentDDPG(Agent, nn.Module):
         self.online_actor.to(device)
         self.target_actor.to(device)
         self.target_critic.to(device)
+
+    def plot_q(self, file_name="", device="cpu"):
+        with torch.no_grad():
+            NUMBER_POINTS = 100
+
+            y = np.linspace(0, 1.5, NUMBER_POINTS)
+            w = np.linspace(-np.pi, np.pi, NUMBER_POINTS)
+
+            value = np.zeros((NUMBER_POINTS, NUMBER_POINTS))
+
+            actions_0 = torch.linspace(-1,1,NUMBER_POINTS)
+            actions_1 = torch.linspace(-1,1,NUMBER_POINTS)
+            actions = torch.cartesian_prod(actions_0, actions_1).to(device)
+
+            for i in range(NUMBER_POINTS):
+                for j in range(NUMBER_POINTS):
+
+                    state = torch.as_tensor((0, y[i], 0, 0, w[j], 0, 0, 0),dtype=torch.float32).unsqueeze(0) #(1,state_dim)
+                    state = state.repeat(NUMBER_POINTS*NUMBER_POINTS,1).to(device)
+
+                    q_v = self.online_critic(state,actions)
+                    value[(i, j)] = torch.max(q_v).item()
+
+            x, y = np.meshgrid(y, w)
+
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(x, y, value, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+
+            ax.set_xlabel('Height')
+            ax.set_ylabel('Angle')
+            ax.set_zlabel('Value')
+
+            fig.suptitle('Value Function', fontsize=20)
+            fig.colorbar(surf, shrink=0.5, aspect=5)
+
+            if file_name == "":
+                plt.show()
+                plt.close()
+            else:
+                plt.savefig(file_name)
+                plt.close()
+
+    def plot_pi(self,file_name="",device="cpu"):
+        with torch.no_grad():
+            NUMBER_POINTS = 100
+
+            y = np.linspace(0, 1.5, NUMBER_POINTS)
+            w = np.linspace(-np.pi, np.pi, NUMBER_POINTS)
+
+
+
+            value = np.zeros((NUMBER_POINTS, NUMBER_POINTS))
+
+            actions_0 = torch.linspace(-1,1,NUMBER_POINTS)
+            actions_1 = torch.linspace(-1,1,NUMBER_POINTS)
+            actions = torch.cartesian_prod(actions_0, actions_1).to(device)
+
+            for i in range(NUMBER_POINTS):
+                for j in range(NUMBER_POINTS):
+
+                    state = torch.as_tensor((0, y[i], 0, 0, w[j], 0, 0, 0),dtype=torch.float32).unsqueeze(0).to(device) #(1,state_dim)
+                    action = self.online_actor(state)
+                    engine_dir = action[0][1]
+
+                    value[(i, j)] = engine_dir.item()
+
+            x, y = np.meshgrid(y, w)
+
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(x, y, value, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+
+            ax.set_xlabel('Height')
+            ax.set_ylabel('Angle')
+            ax.set_zlabel('Value')
+
+            fig.suptitle('Engine Direction Function', fontsize=20)
+            fig.colorbar(surf, shrink=0.5, aspect=5)
+
+            if file_name == "":
+                plt.show()
+                plt.close()
+            else:
+                plt.savefig(file_name)
+                plt.close()
 
 
 class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
@@ -312,6 +404,3 @@ class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
     def episode_finished_callback(self):
         if self._moving_average(self.reduce_noise_episodes_trigger) > self.reduce_noise_trigger and self.reduce_noise:
             self.reduce = True
-
-
-

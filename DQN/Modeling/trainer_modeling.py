@@ -1,7 +1,9 @@
 import os
+import pickle
 from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 from typing import Any, List
 
 import gym
@@ -11,6 +13,8 @@ from termcolor import colored
 from tqdm import trange, tqdm
 
 import matplotlib.pyplot as plt
+
+import copy
 
 
 class Agent(ABC):
@@ -31,7 +35,7 @@ class Agent(ABC):
     def backward(self, *args, **kwargs):
         pass
 
-    def save(self,path,extra_data) -> None:
+    def save(self, path, extra_data) -> None:
         pass
 
 
@@ -39,6 +43,7 @@ class AgentEpisodicTrainer(ABC):
     r"""
     Base trainer class using episode buffer.
     """
+
     def __init__(self, environment: gym.Env,
                  agent: Agent,
                  learning_rate_initial: float = 0.001,
@@ -49,7 +54,7 @@ class AgentEpisodicTrainer(ABC):
                  learning_rate_scaling: List[float] = None,
                  early_stopping=False,
                  early_stopping_trigger: float = -150,
-                 early_stopping_episodes_trigger : int = 50,
+                 early_stopping_episodes_trigger: int = 50,
                  information_episodes: int = 50,
                  buffer_size: int = 100,
                  buffer_size_min: int = 30,
@@ -96,6 +101,7 @@ class AgentEpisodicTrainer(ABC):
 
         ## SET VARIABLES
         self.episode_reward_list = []
+        self.episode_step_list = []
         self.replay_buffer = deque(maxlen=buffer_size)
         self.min_buffer_size = buffer_size_min
         self.batch_size = batch_size
@@ -144,6 +150,8 @@ class AgentEpisodicTrainer(ABC):
 
         self.step = 0
         self.episode = 0
+        self.episode_step_list = []
+        self.episode_reward_list = []
         for e in trange(self.number_episodes):
             self.episode = e
             done = False
@@ -154,7 +162,7 @@ class AgentEpisodicTrainer(ABC):
             while not (done or terminated):
                 ### TAKE ACTION ###
 
-                action = self.action_agent_callback(state,epsilon[e])
+                action = self.action_agent_callback(state, epsilon[e])
 
                 ### USE ACTION ###
                 next_state, reward, done, terminated, *_ = self.env.step(action)
@@ -173,11 +181,13 @@ class AgentEpisodicTrainer(ABC):
                 self.step += 1
 
             self.episode_reward_list.append(total_episode_reward)
+            self.episode_step_list.append(self.step)
 
             if e % self.information_episodes == 0:
                 self.print_episode_information(e)
 
-            if self._moving_average(self.early_stopping_episodes_trigger) > self.episode_reward_trigger and self.early_stopping:
+            if self._moving_average(
+                    self.early_stopping_episodes_trigger) > self.episode_reward_trigger and self.early_stopping:
                 self.env.close()
                 break
 
@@ -186,6 +196,7 @@ class AgentEpisodicTrainer(ABC):
         ### PLOT RESULTS ###
         if verbose:
             self.plot_rewards()
+            self.plot_steps()
 
     def test(self, N=50, verbose=False):
         N_EPISODES = N  # Number of episodes to run for trainings
@@ -253,7 +264,7 @@ class AgentEpisodicTrainer(ABC):
             # will be True if you reached the goal position,
             # False otherwise
             next_state, reward, done, truncated, *_ = self.env.step(action)
-            next_action = self.action_agent_callback(next_state,epsilon=0)
+            next_action = self.action_agent_callback(next_state, epsilon=0)
 
             # Update episode reward
             total_episode_reward += reward
@@ -282,16 +293,17 @@ class AgentEpisodicTrainer(ABC):
                                                                                                    e],
                                                                                                running_avg,
                                                                                                self.learning_rate))
-
     def plot_rewards(self, file_name: str = ""):
-        plt.plot([i for i in range(1, len(self.episode_reward_list) + 1)], self.episode_reward_list, label='Episode reward')
-        plt.plot([i for i in range(1, len(self.episode_reward_list) + 1)], self.running_average(self.episode_reward_list, 10),
+        plt.plot([i for i in range(1, len(self.episode_reward_list) + 1)], self.episode_reward_list,
+                 label='Episode reward')
+        plt.plot([i for i in range(1, len(self.episode_reward_list) + 1)],
+                 self.running_average(self.episode_reward_list, 10),
                  label='Average episode reward')
         plt.xlabel('Episodes')
         plt.ylabel('Total reward')
 
         plt.suptitle('Total Reward vs Episodes')
-        #plt.title(str(self.agent))
+        # plt.title(str(self.agent))
         plt.legend()
         plt.grid(alpha=0.3)
 
@@ -301,6 +313,28 @@ class AgentEpisodicTrainer(ABC):
         else:
             plt.savefig(file_name)
             plt.close()
+
+    def plot_steps(self,file_name: str = ""):
+        plt.plot([i for i in range(1, len(self.episode_step_list) + 1)], self.episode_step_list,
+                 label='Episode Steps')
+        plt.plot([i for i in range(1, len(self.episode_step_list) + 1)],
+                 self.running_average(self.episode_step_list, 10),
+                 label='Average episode steps')
+        plt.xlabel('Episodes')
+        plt.ylabel('Total steps')
+
+        plt.suptitle('Total steps vs Episodes')
+        # plt.title(str(self.agent))
+        plt.legend()
+        plt.grid(alpha=0.3)
+
+        if file_name == "":
+            plt.show()
+            plt.close()
+        else:
+            plt.savefig(file_name)
+            plt.close()
+
 
     def running_average(self, x, N):
         ''' Function used to compute the running mean
@@ -317,16 +351,19 @@ class AgentEpisodicTrainer(ABC):
     def update_agent(self):
         pass
 
-    def action_agent_callback(self,state :Any ,epsilon : float):
+    def action_agent_callback(self, state: Any, epsilon: float):
         return self.agent.forward(state=state, epsilon=epsilon)
 
     def episode_finished_callback(self):
         pass
+
+
 class BigHyperParameter:
     r"""
     Wrapper class for parameters that cannot be directly printed or saved.
     """
-    def __init__(self,param : Any,name : str):
+
+    def __init__(self, param: Any, name: str):
         self._param = param
         self._name = name
 
@@ -339,10 +376,12 @@ class BigHyperParameter:
     def __str__(self):
         return self._name
 
+
 class GridSearcher:
     r"""
     Class for performing a grid search among the parameters of an agent class and a trainer class.
     """
+
     def __init__(self, env: gym.Env, agent_class, agent_trainer_class, save_all=False, folder="RESULTS"):
         r"""
         Initialize the grid searcher
@@ -372,11 +411,11 @@ class GridSearcher:
         """
         ### SET GENERAL PARAMETERS
         e = datetime.now()
-        time0 : str = e.strftime("%Y-%m-%d%H-%M-%S")
-        if not os.path.exists(os.path.join(".", self.folder,time0)):
-            os.makedirs(os.path.join(".", self.folder,time0))
+        time0: str = e.strftime("%Y-%m-%d%H-%M-%S")
+        if not os.path.exists(os.path.join(".", self.folder, time0)):
+            os.makedirs(os.path.join(".", self.folder, time0))
 
-        self.folder_results =  os.path.join(self.folder, time0)
+        self.folder_results = os.path.join(self.folder, time0)
 
         ### CREATE ENVIRONMENT ###
         max_reward = float("-inf")
@@ -416,6 +455,7 @@ class GridSearcher:
                                                    "result": (passed, avg_rew, conf)})
 
                     trainer.plot_rewards(os.path.join(self.folder, time0, f'{i:03}' + ".png"))
+                    trainer.plot_steps(os.path.join(self.folder, time0, f'{i:03}steps' + ".png"))
                 if passed:
                     if not self.save_all:
                         e = datetime.now()
@@ -427,12 +467,13 @@ class GridSearcher:
                                                        "result": (passed, avg_rew, conf)})
 
                         trainer.plot_rewards(os.path.join(self.folder, time0, f'{i:03}' + ".png"))
+                        trainer.plot_steps(os.path.join(self.folder, time0, f'{i:03}steps' + ".png"))
 
                     if avg_rew_lim > max_reward:
                         print(colored("[NEW BEST] The new best hyperparameter combination is:"))
                         print(hyperparameters)
                         max_reward = avg_rew_lim
-                        best_hyperparameters = (hyperparameters,trainer_hyp)
+                        best_hyperparameters = (hyperparameters, trainer_hyp)
                         stored_time = time
 
         ### RETURN BEST FOUND POLICY
@@ -440,7 +481,7 @@ class GridSearcher:
         print(best_hyperparameters)
         return best_hyperparameters
 
-    def train_step(self, model_parameters: dict, trainer_parameters : dict={}, verbose=False):
+    def train_step(self, model_parameters: dict, trainer_parameters: dict = {}, verbose=False):
         r"""
         Do one iteration of training of the agent
 
@@ -455,7 +496,7 @@ class GridSearcher:
 
         agent = self.agent_class(**self._unwrap_dict(model_parameters))
         ### CREATE TRAINER ###
-        trainer = self.agent_trainer_class(agent=agent,**self._unwrap_dict(trainer_parameters))
+        trainer = self.agent_trainer_class(agent=agent, **self._unwrap_dict(trainer_parameters))
 
         ### TRAIN AND TEST ###
         trainer.train(verbose=verbose)
@@ -464,18 +505,93 @@ class GridSearcher:
 
     def _unwrap_name_dict(self, parameter_set: dict) -> dict:
         return {k: self._unwrap_name(v) for k, v in parameter_set.items()}
-    def _unwrap_name(self, parameter : Any):
-        if isinstance(parameter,BigHyperParameter):
+
+    def _unwrap_name(self, parameter: Any):
+        if isinstance(parameter, BigHyperParameter):
             return parameter.name()
         else:
             return parameter
-    def _unwrap_dict(self, parameter_set : dict) -> dict:
-        return {k : self._unwrap(v) for k,v in parameter_set.items()}
-    def _unwrap(self,parameter : Any) -> Any:
+
+    def _unwrap_dict(self, parameter_set: dict) -> dict:
+        return {k: self._unwrap(v) for k, v in parameter_set.items()}
+
+    def _unwrap(self, parameter: Any) -> Any:
         """
         Unrwuap the parameter
         """
-        if isinstance(parameter,BigHyperParameter):
+        if isinstance(parameter, BigHyperParameter):
             return parameter.value()
         else:
             return parameter
+
+    @staticmethod
+    def analyze_results(directory):
+        r"""
+        Analyze the results in one directory to find the best configuration and print it.
+        """
+        files = Path(directory).glob('*')
+
+        best_conf_name = ""
+        best_conf = None
+        best_result = float("-inf")
+        for file in files:
+
+            # Open the results
+            if str(file).lower().endswith(".pkl"):
+                with open(file, "rb") as f:
+                    results = pickle.load(f)
+
+                    passed, avg_rew, conf = results["result"]
+
+                    if avg_rew - conf > best_result:
+                        best_conf_name = str(file)
+                        best_conf = results
+                        best_result = avg_rew - conf
+
+        best_agent_param: dict = best_conf["agent_param"]
+        best_trainer_param: dict = best_conf["trainer_param"]
+
+        print("BEST AGENT PARAMETER")
+        print(best_agent_param)
+        print("NEST TRAINER PARMATER")
+        print(best_trainer_param)
+        print("RESULTS")
+        print(best_conf["result"])
+        print(best_conf_name)
+
+        return best_agent_param,best_trainer_param
+
+    def compare_feature(directory, agent=False, param_name="learning_rate_initial", log_scale=False):
+        files = Path(directory).glob('*')
+        params_results = []
+        params_values = []
+        for file in files:
+            best_conf_name = ""
+            best_conf = None
+            best_result = float("-inf")
+            # Open the results
+
+            if str(file).lower().endswith(".pkl"):
+                with open(file, "rb") as f:
+                    results = pickle.load(f)
+
+                    passed, avg_rew, conf = results["result"]
+
+                    params_values.append(results["trainer_param" if not agent else "agent_param"][param_name])
+                    params_results.append(avg_rew)
+
+                    if avg_rew - conf > best_result:
+                        best_conf_name = str(file)
+                        best_conf = results
+                        best_result = avg_rew - conf
+
+        zipped = zip(params_values, params_results)
+        zipped = sorted(zipped)
+        params_values = [np.log10(x) if log_scale else x for x, _ in zipped]
+        params_results = [x for _, x in zipped]
+
+        plt.plot(params_values, params_results, 'bo-')
+        plt.title(param_name)
+        plt.xlabel("Value" if not log_scale else "log(Value)")
+        plt.ylabel("Average Reward")
+        plt.show()

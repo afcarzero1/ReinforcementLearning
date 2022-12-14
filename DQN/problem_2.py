@@ -57,10 +57,7 @@ def solve_problem():
                       actor_network_initialization_parameters={"state_dimension": np.prod(env.observation_space.shape),
                                                                "action_dimension": np.prod(env.action_space.shape)}
                       , noise_generator=LowPassFilteredNoise(np.prod(env.action_space.shape),
-                                                             sigma=1,
-                                                             decreasing_sigma=True,
-                                                             final_sigma=0.1,
-                                                             episodes=500)
+                                                             sigma=2.5)
                       )
 
     trainer = AgentEpisodicDDPGTrainer(env,
@@ -84,8 +81,37 @@ def solve_problem():
     trainer.train()
     trainer.plot_rewards()
     trainer.test(verbose=True, N=100)
-    trainer.agent.save("network.pth", extra_data=None)
+    trainer.agent.save("ddpgnetwork", extra_data=None)
     env = gym.make('LunarLander-v2', continuous=True, render_mode="human")
+    trainer = AgentEpisodicDDPGTrainer(env, agent)
+    trainer.play_game()
+
+
+def test_network(path_actor,path_critic):
+    env = gym.make('LunarLander-v2', continuous=True)
+    env.reset()
+
+    agent = AgentDDPG(critic_network=LunarCritic,
+                      actor_network=LunarActor,
+                      critic_network_initialization_parameters={"state_dimension": np.prod(env.observation_space.shape),
+                                                                "action_dimension": np.prod(env.action_space.shape)},
+                      actor_network_initialization_parameters={"state_dimension": np.prod(env.observation_space.shape),
+                                                               "action_dimension": np.prod(env.action_space.shape)}
+                      , noise_generator=LowPassFilteredNoise(np.prod(env.action_space.shape),
+                                                             sigma=2.5)
+                      )
+
+    agent.load(path_actor,path_critic)
+
+    agent.to("cuda")
+    agent.plot_pi(device="cuda")
+    agent.plot_q(device="cuda")
+
+    trainer = AgentEpisodicDDPGTrainer(env,
+                                       agent)
+
+    trainer.test(verbose=True,N=200)
+    env = gym.make('LunarLander-v2', continuous=True,render_mode="human")
     trainer = AgentEpisodicDDPGTrainer(env, agent)
     trainer.play_game()
 
@@ -150,6 +176,50 @@ def find_best_hyperparameters():
     grid_searcher.grid_search(agent_parameters, trainer_parameters)
 
 
+def analyze_best_network(directory):
+    best_agent_param,best_trainer_param = GridSearcher.analyze_results(directory)
+    env = gym.make('LunarLander-v2', continuous=True)
+    env.reset()
+    grid_searcher = GridSearcher(env, agent_class=AgentDDPG, agent_trainer_class=AgentEpisodicDDPGTrainer,
+                                 save_all=True, folder="RESULTS_DDPG")
+
+    agent_param = {}
+    for k, v in best_agent_param.items():
+        if k == "actor_network":
+            agent_param[k] = LunarActor
+        elif k == "critic_network":
+            agent_param[k] = LunarCritic
+        else:
+            agent_param[k] = v
+
+    # Repeat the training for observing episode steps
+    grid_searcher.train_step(agent_param,best_trainer_param,verbose=True)
+
+
+    # See effect of discount factor
+    agent_param = {k : [v] for k,v in agent_param.items()}
+    trainer_param = {k : [v,1,0.1] if k == "discount_factor" else [v] for k,v in best_trainer_param.items()}
+    grid_searcher = GridSearcher(env, agent_class=AgentDDPG, agent_trainer_class=AgentEpisodicDDPGTrainer,
+                                 save_all=True, folder="RESULTS_DDPG_DISCOUNT")
+
+    grid_searcher.grid_search(agent_param,trainer_param)
+
+
+    # See effect of buffer size
+    trainer_param = {k: [v, 500, 5000, 100000] if k == "buffer_size" else [v] for k, v in best_trainer_param.items()}
+    grid_searcher = GridSearcher(env, agent_class=AgentDDPG, agent_trainer_class=AgentEpisodicDDPGTrainer,
+                                 save_all=True, folder="RESULTS_DDPG_BUFFER")
+    grid_searcher.grid_search(agent_param,trainer_param)
+
+
+
+
+
 if __name__ == '__main__':
-    find_best_hyperparameters()
-    solve_problem()
+
+    #best_trainer = GridSearcher.analyze_results("RESULTS_DDPG/2022-12-1319-33-54/")
+    #analyze_best_network("RESULTS_DDPG/2022-12-1319-33-54/")
+    test_network("RESULTS_DDPG/2022-12-1319-33-54/009network_actor.pth","RESULTS_DDPG/2022-12-1319-33-54/009network_critic.pth")
+    #test_network("ddpgnetwork.pthnetwork_actor.pth","ddpgnetwork.pthnetwork_critic.pth")
+    #find_best_hyperparameters()
+    #solve_problem()
