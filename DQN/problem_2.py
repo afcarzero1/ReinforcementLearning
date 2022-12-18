@@ -3,47 +3,10 @@ import numpy as np
 import torch
 from torch import nn
 
+from Modeling.ActorCriticModeling import LunarCritic,LunarActor
 from Modeling.trainer_modeling import GridSearcher, BigHyperParameter
 from Modeling.ddpg_modeling import AgentDDPG, Actor, Critic, AgentEpisodicDDPGTrainer, LowPassFilteredNoise
 
-
-class LunarActor(Actor):
-    r"""
-    Network to be used as actor in a DDPG algorithm.
-    """
-    def __init__(self, state_dimension, action_dimension):
-        super().__init__()
-        self.net = nn.Sequential(nn.Linear(state_dimension, 400),
-                                 nn.ReLU(),
-                                 nn.Linear(400, 200),
-                                 nn.ReLU(),
-                                 nn.Linear(200, action_dimension),
-                                 nn.Tanh()
-                                 )
-
-    def forward(self, states: torch.Tensor):
-        return self.net(states)
-
-
-class LunarCritic(Critic):
-    r"""
-    Network to be used as critic in a DDPG algorithm.
-    """
-    def __init__(self, state_dimension, action_dimension):
-        super().__init__()
-        self.l1 = nn.Linear(state_dimension, 400)
-        self.l2 = nn.Linear(400 + action_dimension, 200)
-        self.l3 = nn.Linear(200, 1)
-
-        self.relu = nn.ReLU()
-
-    def forward(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        x = self.l1(states)
-        x = self.relu(x)
-        x = self.l2(torch.cat([x, actions], dim=1))
-        x = self.relu(x)
-        x = self.l3(x)
-        return x
 
 
 def solve_problem():
@@ -183,6 +146,8 @@ def analyze_best_network(directory):
     grid_searcher = GridSearcher(env, agent_class=AgentDDPG, agent_trainer_class=AgentEpisodicDDPGTrainer,
                                  save_all=True, folder="RESULTS_DDPG")
 
+
+    # Substitute parameters
     agent_param = {}
     for k, v in best_agent_param.items():
         if k == "actor_network":
@@ -193,7 +158,15 @@ def analyze_best_network(directory):
             agent_param[k] = v
 
     # Repeat the training for observing episode steps
-    grid_searcher.train_step(agent_param,best_trainer_param,verbose=True)
+    #grid_searcher.train_step(agent_param,best_trainer_param,verbose=True)
+
+    # See effect of buffer size
+    agent_param = {k: [v] for k, v in agent_param.items()}
+    trainer_param = {k: [v, 500000, 100000] if k == "buffer_size" else [v] for k, v in
+                     best_trainer_param.items()}
+    grid_searcher = GridSearcher(env, agent_class=AgentDDPG, agent_trainer_class=AgentEpisodicDDPGTrainer,
+                                 save_all=True, folder="RESULTS_DDPG_BUFFER")
+    grid_searcher.grid_search(agent_param, trainer_param)
 
 
     # See effect of discount factor
@@ -205,21 +178,35 @@ def analyze_best_network(directory):
     grid_searcher.grid_search(agent_param,trainer_param)
 
 
-    # See effect of buffer size
-    trainer_param = {k: [v, 500, 5000, 100000] if k == "buffer_size" else [v] for k, v in best_trainer_param.items()}
-    grid_searcher = GridSearcher(env, agent_class=AgentDDPG, agent_trainer_class=AgentEpisodicDDPGTrainer,
-                                 save_all=True, folder="RESULTS_DDPG_BUFFER")
-    grid_searcher.grid_search(agent_param,trainer_param)
+def re_save_network(path_actor,path_critic):
+    env = gym.make('LunarLander-v2', continuous=True)
+    env.reset()
+    agent = AgentDDPG(critic_network=LunarCritic,
+                      actor_network=LunarActor,
+                      critic_network_initialization_parameters={"state_dimension": np.prod(env.observation_space.shape),
+                                                                "action_dimension": np.prod(env.action_space.shape)},
+                      actor_network_initialization_parameters={"state_dimension": np.prod(env.observation_space.shape),
+                                                               "action_dimension": np.prod(env.action_space.shape)}
+                      , noise_generator=LowPassFilteredNoise(np.prod(env.action_space.shape),
+                                                             sigma=2.5)
+                      )
 
+    agent.load(path_actor, path_critic)
 
+    #agent.save("best",extra_data=None,dictionary=False)
+
+    torch.save(agent.online_actor,"bestnetwork_actor_direct.pth")
 
 
 
 if __name__ == '__main__':
-
+    pass
     #best_trainer = GridSearcher.analyze_results("RESULTS_DDPG/2022-12-1319-33-54/")
-    #analyze_best_network("RESULTS_DDPG/2022-12-1319-33-54/")
-    test_network("RESULTS_DDPG/2022-12-1319-33-54/009network_actor.pth","RESULTS_DDPG/2022-12-1319-33-54/009network_critic.pth")
+    #re_save_network("RESULTS_DDPG/2022-12-1319-33-54/009network_actor.pth","RESULTS_DDPG/2022-12-1319-33-54/009network_critic.pth")
+    analyze_best_network("RESULTS_DDPG/2022-12-1319-33-54/")
+    #test_network("RESULTS_DDPG/2022-12-1319-33-54/009network_actor.pth","RESULTS_DDPG/2022-12-1319-33-54/009network_critic.pth")
     #test_network("ddpgnetwork.pthnetwork_actor.pth","ddpgnetwork.pthnetwork_critic.pth")
     #find_best_hyperparameters()
     #solve_problem()
+    #GridSearcher.compare_feature("/home/andres/Documents/Master/ReinforcementLearning/ReinforcementLearning/DQN/RESULTS_DDPG_DISCOUNT/2022-12-1516-08-39",
+    #                             agent=False,param_name="discount_factor")
