@@ -1,3 +1,7 @@
+"""
+Module defining the necessary classes for solving a DDPG problem.
+"""
+
 import pickle
 import random
 from abc import abstractmethod, ABC
@@ -56,6 +60,9 @@ class NoiseGenerator(ABC):
 
 
 class LowPassFilteredNoise(NoiseGenerator):
+    r"""
+    Ornstein-Uhlenbeck noise.
+    """
     def __init__(self,
                  dimension: int,
                  mu: float = 0.15,
@@ -73,8 +80,16 @@ class LowPassFilteredNoise(NoiseGenerator):
         self.final_sigma = final_sigma
         self.reduced_sigma = reduced_sigma
         self.step = (sigma - final_sigma) / episodes if decreasing_sigma else 0
+        self.decreasing_sigma = decreasing_sigma
+        self.episodes = episodes
 
     def generate(self, reduce_sigma: bool = False) -> torch.Tensor:
+        r"""
+        Generate a vector with the noise.
+
+        Args:
+            reduce_sigma(bool) : Reduce immediately the noise to the minimum value (from next generation).
+        """
         means = torch.zeros(self.dimension)
         std = torch.ones(self.dimension) * self.sigma
 
@@ -152,19 +167,25 @@ class AgentDDPG(Agent, nn.Module):
         action = self.online_actor(s_t).cpu().detach()
         return action
 
-    def save(self, path, extra_data):
+    def save(self, path, extra_data,dictionary=True):
         r"""
         Save the online networks as a .pth file.
 
         Args:
             path (str) : The path to use for saving the network
             extra_data (Any) : Additional Data
+            dictionary (bool) : Save as dictionary of parameters. Otherwise as network.
         """
-        torch.save(self.online_actor.state_dict(), path + "network_actor.pth")
-        torch.save(self.online_critic.state_dict(), path + "network_critic.pth")
+        if dictionary:
+            torch.save(self.online_actor.state_dict(), path + "network_actor.pth")
+            torch.save(self.online_critic.state_dict(), path + "network_critic.pth")
+        else:
+            torch.save(self.online_actor, path + "network_actor_direct.pth")
+            torch.save(self.online_critic, path + "network_critic_direct.pth")
 
-        with open(path + "extra.pkl", "wb") as f:
-            pickle.dump(extra_data, f)
+        if extra_data is not None:
+            with open(path + "extra.pkl", "wb") as f:
+                pickle.dump(extra_data, f)
 
     def load(self,path_actor,path_critic):
         self.online_actor.load_state_dict(torch.load(path_actor))
@@ -328,7 +349,9 @@ class AgentDDPG(Agent, nn.Module):
 
 
 class AgentEpisodicDDPGTrainer(AgentEpisodicTrainer):
-
+    r"""
+    Trainer for a DDPG Agent
+    """
     def __init__(self,
                  environment: gym.Env,
                  agent: AgentDDPG,

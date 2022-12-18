@@ -516,8 +516,8 @@ class GridSearcher:
         return {k: self._unwrap(v) for k, v in parameter_set.items()}
 
     def _unwrap(self, parameter: Any) -> Any:
-        """
-        Unrwuap the parameter
+        r"""
+        Take out the parameter value
         """
         if isinstance(parameter, BigHyperParameter):
             return parameter.value()
@@ -561,6 +561,7 @@ class GridSearcher:
 
         return best_agent_param,best_trainer_param
 
+    @staticmethod
     def compare_feature(directory, agent=False, param_name="learning_rate_initial", log_scale=False):
         files = Path(directory).glob('*')
         params_results = []

@@ -90,8 +90,7 @@ class AgentDQN(Agent, nn.Module):
         action = max_q_index.detach().item()
         return action
 
-
-    def _q_val(self,state,device):
+    def _q_val(self, state, device):
         obs_t: torch.Tensor = torch.as_tensor(state, dtype=torch.float32).to(device)
         q_values = self.online_network.forward(obs_t.unsqueeze(0))
         return q_values
@@ -104,26 +103,29 @@ class AgentDQN(Agent, nn.Module):
         self.online_network = self.online_network.to(device)
         self.target_network = self.target_network.to(device)
 
-    def save(self, path, extra_data):
+    def save(self, path, extra_data, dictionary=True):
         r"""
         Save the online network as a .pth file.
 
         Args:
             path (str) : The path to use for saving the network
             extra_data (Any) : Additional Data
+            dictionary (bool) : Save as dictionary of parameters. Otherwise as object.
         """
-        torch.save(self.online_network.state_dict(), path+"network.pth")
+        if dictionary:
+            torch.save(self.online_network.state_dict(), path + "network.pth")
+        else:
+            torch.save(self.online_network, path + "netowrk_direct.pth")
 
-        with open(path+"extra.pkl","wb") as f:
-            pickle.dump(extra_data,f)
+        with open(path + "extra.pkl", "wb") as f:
+            pickle.dump(extra_data, f)
 
     def load(self, path):
         self.online_network.load_state_dict(torch.load(path))
         self.target_network.load_state_dict(torch.load(path))
 
-    def plot_q(self,file_name="",device="cpu"):
+    def plot_q(self, file_name="", device="cpu"):
         NUMBER_POINTS = 100
-
 
         y = np.linspace(0, 1.5, NUMBER_POINTS)
         w = np.linspace(-np.pi, np.pi, NUMBER_POINTS)
@@ -132,9 +134,8 @@ class AgentDQN(Agent, nn.Module):
 
         for i in range(NUMBER_POINTS):
             for j in range(NUMBER_POINTS):
-
-                q_v = self._q_val((0,y[i],0,0,w[j],0,0,0),device)
-                value[(i,j)] = torch.max(q_v).item()
+                q_v = self._q_val((0, y[i], 0, 0, w[j], 0, 0, 0), device)
+                value[(i, j)] = torch.max(q_v).item()
 
         x, y = np.meshgrid(y, w)
 
@@ -155,7 +156,7 @@ class AgentDQN(Agent, nn.Module):
             plt.savefig(file_name)
             plt.close()
 
-    def plot_a(self,file_name="",device ="cpu"):
+    def plot_a(self, file_name="", device="cpu"):
         NUMBER_POINTS = 100
 
         y = np.linspace(0, 1.5, NUMBER_POINTS)
@@ -188,8 +189,12 @@ class AgentDQN(Agent, nn.Module):
             plt.close()
 
 
-
 class NetworkDQN(nn.Module):
+    r"""
+    Base class to be used for creating a network for the DQN network. It defined how the class acts.
+
+    """
+
     def act(self, obs):
         obs_t: torch.Tensor = torch.as_tensor(obs, dtype=torch.float32)
         q_values = self.forward(obs_t.unsqueeze(0))
@@ -199,42 +204,18 @@ class NetworkDQN(nn.Module):
         return action
 
 
-class SmallNetwork(NetworkDQN):
-    def __init__(self, env):
-        super(SmallNetwork, self).__init__()
-        in_features = int(np.prod(env.observation_space.shape))  # Number of inputs in the layer
-
-        self.net = nn.Sequential(nn.Linear(in_features, 64),
-                                 nn.Tanh(),
-                                 nn.Linear(64, env.action_space.n))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class BigNetwork(NetworkDQN):
-    def __init__(self, env):
-        super(BigNetwork, self).__init__()
-        in_features = int(np.prod(env.observation_space.shape))  # Number of inputs in the layer
-
-        self.net = nn.Sequential(nn.Linear(in_features, 128),
-                                 nn.Tanh(),
-                                 nn.Linear(128, 64),
-                                 nn.Tanh(),
-                                 nn.Linear(64, env.action_space.n))
-
-    def forward(self, x):
-        return self.net(x)
-
-
 class AgentEpisodicDQNTrainer(AgentEpisodicTrainer):
+    f"""
+    Trainer for  DQN Agent.
+    """
+
     def __init__(self,
                  environment: gym.Env,
                  agent: AgentDQN,
                  learning_rate_initial: float = 5e-4,
                  device: torch.device = None,
                  target_update_frequency: int = 200,
-                 target_update_strategy : str = "step",
+                 target_update_strategy: str = "step",
                  clip_gradients: bool = False,
                  clipping_value: float = 2,
                  *args,
@@ -245,7 +226,7 @@ class AgentEpisodicDQNTrainer(AgentEpisodicTrainer):
         self.target_update_strategy = target_update_strategy
         self.target_update_frequency = target_update_frequency
 
-        assert type(self.agent) == AgentDQN
+        assert issubclass(self.agent.__class__, Agent)
         self.optimizer = torch.optim.Adam(self.agent.online_network.parameters(), lr=learning_rate_initial)
 
         if clip_gradients:
@@ -270,7 +251,7 @@ class AgentEpisodicDQNTrainer(AgentEpisodicTrainer):
         self.optimizer.step()
 
         # Update network every update steps or episodes
-        if self.step % self.target_update_frequency and self.target_update_strategy=="step":
+        if self.step % self.target_update_frequency and self.target_update_strategy == "step":
             self.agent.align_networks()
         elif self.episode % self.target_update_frequency:
             self.agent.align_networks()
