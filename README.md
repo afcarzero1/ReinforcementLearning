@@ -15,3 +15,10 @@ algorithm trained using stochastic gradient descent with Nesterov acceleration a
 as function approximation for the value function a linear regressor with Fourier basis.
 
 A detailed analysis of the results can be found under the docs folder.
+
+## Deep Architectures
+
+Here it is possible to find an implementation similar to RLLib for training and testing Reinforcement Learning methods
+in a versatile way. It shows how to implement DDPG and DQN under this framework to solve tasks in a Gym environment.
+
+
